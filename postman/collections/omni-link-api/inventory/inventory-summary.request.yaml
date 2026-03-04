@@ -1,0 +1,9 @@
+$kind: http-request
+name: Inventory Summary
+description: >-
+  Aggregated inventory summary grouped by product. Shows total quantity,
+  reserved, warehouse count, and reorder status across all warehouses.
+method: GET
+url: '{{base_url}}/api/inventory/summary/'
+order: 3000
+

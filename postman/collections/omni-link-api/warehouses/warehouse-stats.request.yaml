@@ -1,0 +1,5 @@
+$kind: http-request
+name: Warehouse Stats
+method: GET
+url: '{{base_url}}/api/warehouses/{{warehouse_id}}/stats/'
+order: 7000

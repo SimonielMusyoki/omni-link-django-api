@@ -1,0 +1,6 @@
+$kind: http-request
+name: Mark In Transit
+description: Mark a PROCESSING shipment as in transit
+method: POST
+url: '{{base_url}}/api/shipments/{{shipment_id}}/mark_in_transit/'
+order: 5000

@@ -1,0 +1,15 @@
+$kind: http-request
+name: List Kit Items
+method: GET
+url: '{{base_url}}/api/kit-items/'
+order: 1000
+queryParams:
+  - key: bundle
+    value: ''
+    description: Filter by bundle (parent) product ID
+    disabled: true
+  - key: component
+    value: ''
+    description: Filter by component product ID
+    disabled: true
+

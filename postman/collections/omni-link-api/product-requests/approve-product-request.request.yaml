@@ -1,0 +1,14 @@
+$kind: http-request
+name: Approve Product Request
+method: POST
+url: '{{base_url}}/api/requests/{{request_id}}/approve/'
+order: 4000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "notes": "Approved for fulfillment"
+    }

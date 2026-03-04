@@ -1,0 +1,26 @@
+$kind: http-request
+name: Update Shipment
+method: PUT
+url: '{{base_url}}/api/shipments/{{shipment_id}}/'
+order: 4000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "tracking_number": "TRACK123456789-UPD",
+      "order": "{{order_id}}",
+      "warehouse": "{{warehouse_id}}",
+      "recipient_name": "John Doe Updated",
+      "recipient_email": "john.updated@example.com",
+      "shipping_address": "456 New St",
+      "shipping_city": "Mombasa",
+      "shipping_state": "Coast",
+      "shipping_zip": "80100",
+      "shipping_country": "Kenya",
+      "carrier": "DHL",
+      "estimated_delivery": "2026-04-20T00:00:00Z",
+      "weight": "3.00"
+    }

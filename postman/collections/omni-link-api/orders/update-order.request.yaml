@@ -1,0 +1,27 @@
+$kind: http-request
+name: Update Order
+method: PUT
+url: '{{base_url}}/api/orders/{{order_id}}/'
+order: 4000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "order_number": "ORD-001",
+      "customer_name": "John Doe Updated",
+      "customer_email": "john.updated@example.com",
+      "status": "PENDING",
+      "total_amount": "89.97",
+      "warehouse": "{{warehouse_id}}",
+      "items": [
+        {
+          "product": "{{product_id}}",
+          "quantity": 3,
+          "unit_price": "29.99",
+          "total_price": "89.97"
+        }
+      ]
+    }

@@ -1,0 +1,16 @@
+$kind: http-request
+name: Google Login
+method: POST
+url: '{{base_url}}/api/auth/google/login/'
+order: 5000
+auth:
+  type: noauth
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "access_token": "{{google_access_token}}"
+    }

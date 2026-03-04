@@ -1,0 +1,12 @@
+$kind: http-request
+name: List Warehouses
+method: GET
+url: '{{base_url}}/api/warehouses/'
+order: 1000
+queryParams:
+  - key: search
+    value: ''
+    disabled: true
+  - key: ordering
+    value: ''
+    disabled: true

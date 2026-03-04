@@ -1,0 +1,21 @@
+$kind: http-request
+name: Create Transfer
+description: >-
+  Create AND execute a transfer atomically. Stock is moved from
+  from_warehouse to to_warehouse immediately.
+method: POST
+url: '{{base_url}}/api/transfers/'
+order: 2000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: -
+    {
+      "product": "{{product_id}}",
+      "from_warehouse": "{{warehouse_id}}",
+      "to_warehouse": 2,
+      "quantity": 50,
+      "notes": "Seasonal rebalancing"
+    }

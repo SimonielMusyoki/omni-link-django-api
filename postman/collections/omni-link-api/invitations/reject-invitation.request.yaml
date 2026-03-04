@@ -1,0 +1,7 @@
+$kind: http-request
+name: Reject Invitation
+description: Reject a specific invitation by ID
+method: POST
+url: '{{base_url}}/api/invitations/{{invitation_id}}/reject/'
+order: 5000
+

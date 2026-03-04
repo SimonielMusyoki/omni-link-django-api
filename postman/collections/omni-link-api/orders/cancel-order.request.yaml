@@ -1,0 +1,6 @@
+$kind: http-request
+name: Cancel Order
+description: Cancel an order (cannot cancel SHIPPED or DELIVERED orders)
+method: POST
+url: '{{base_url}}/api/orders/{{order_id}}/cancel/'
+order: 8000

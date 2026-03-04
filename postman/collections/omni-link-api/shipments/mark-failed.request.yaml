@@ -1,0 +1,7 @@
+$kind: http-request
+name: Mark Failed
+description: Mark a shipment as failed
+method: POST
+url: '{{base_url}}/api/shipments/{{shipment_id}}/mark_failed/'
+order: 8000
+

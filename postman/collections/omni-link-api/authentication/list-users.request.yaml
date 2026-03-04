@@ -1,0 +1,6 @@
+$kind: http-request
+name: List Users
+description: Admin only
+method: GET
+url: '{{base_url}}/api/auth/users/'
+order: 9000

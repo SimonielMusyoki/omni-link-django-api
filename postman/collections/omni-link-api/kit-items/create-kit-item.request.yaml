@@ -1,0 +1,18 @@
+$kind: http-request
+name: Create Kit Item
+description: Add a component product to a bundle
+method: POST
+url: '{{base_url}}/api/kit-items/'
+order: 2000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: -
+    {
+      "bundle": "{{product_id}}",
+      "component": 2,
+      "quantity": 3
+    }
+

@@ -1,0 +1,5 @@
+$kind: http-request
+name: Delete Warehouse
+method: DELETE
+url: '{{base_url}}/api/warehouses/{{warehouse_id}}/'
+order: 6000

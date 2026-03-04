@@ -1,0 +1,16 @@
+$kind: http-request
+name: Update User
+description: Admin only
+method: PATCH
+url: '{{base_url}}/api/auth/users/{{user_id}}/'
+order: 11000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "first_name": "Jane",
+      "last_name": "Smith"
+    }

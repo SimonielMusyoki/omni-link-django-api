@@ -1,0 +1,20 @@
+$kind: http-request
+name: Disassemble Bundle
+description: >-
+  Disassemble bundle units back into components.
+  Removes bundle units from the warehouse and returns each component
+  × quantity back to inventory.
+method: POST
+url: '{{base_url}}/api/products/{{product_id}}/disassemble/'
+order: 9000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: -
+    {
+      "warehouse": "{{warehouse_id}}",
+      "quantity": 2
+    }
+

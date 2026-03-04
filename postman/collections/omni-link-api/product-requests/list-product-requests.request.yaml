@@ -1,0 +1,22 @@
+$kind: http-request
+name: List Product Requests
+method: GET
+url: '{{base_url}}/api/requests/'
+order: 1000
+queryParams:
+  - key: status
+    value: ''
+    description: 'Filter by status: PENDING, APPROVED, REJECTED'
+    disabled: true
+  - key: type
+    value: ''
+    description: 'Filter by type: TRANSFER, ADJUSTMENT, REFUND, OTHER'
+    disabled: true
+  - key: assigned_to
+    value: ''
+    description: Filter by assigned user ID
+    disabled: true
+  - key: ordering
+    value: '-created_at'
+    description: 'Order by: created_at, status, type (prefix with - for descending)'
+    disabled: true

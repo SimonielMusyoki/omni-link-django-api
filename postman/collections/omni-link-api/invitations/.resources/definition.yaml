@@ -1,0 +1,6 @@
+$kind: collection
+name: Invitations
+description: >-
+  CRUD for warehouse invitations. Includes accept, reject actions per invitation
+  and an accept_by_token action for token-based acceptance.
+order: 12

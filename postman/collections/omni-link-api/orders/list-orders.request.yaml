@@ -1,0 +1,22 @@
+$kind: http-request
+name: List Orders
+method: GET
+url: '{{base_url}}/api/orders/'
+order: 1000
+queryParams:
+  - key: status
+    value: ''
+    description: 'Filter by status: PENDING, CONFIRMED, SHIPPED, DELIVERED, CANCELLED'
+    disabled: true
+  - key: warehouse
+    value: ''
+    description: Filter by warehouse ID
+    disabled: true
+  - key: search
+    value: ''
+    description: Search by order number, customer email, or customer name
+    disabled: true
+  - key: ordering
+    value: '-created_at'
+    description: 'Order by: created_at, status, total_amount (prefix with - for descending)'
+    disabled: true

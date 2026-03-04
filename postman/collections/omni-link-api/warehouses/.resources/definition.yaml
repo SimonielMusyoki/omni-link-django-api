@@ -1,0 +1,6 @@
+$kind: collection
+name: Warehouses
+description: >-
+  CRUD for warehouses plus inventory helper actions: view inventory, add stock,
+  remove stock, and warehouse statistics.
+order: 4

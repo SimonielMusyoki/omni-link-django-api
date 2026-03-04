@@ -1,0 +1,17 @@
+$kind: http-request
+name: Remove Stock
+description: Remove stock for a product from this warehouse
+method: POST
+url: '{{base_url}}/api/warehouses/{{warehouse_id}}/remove-stock/'
+order: 10000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: -
+    {
+      "product": "{{product_id}}",
+      "quantity": 10
+    }
+

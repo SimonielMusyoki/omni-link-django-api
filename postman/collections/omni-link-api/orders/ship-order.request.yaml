@@ -1,0 +1,6 @@
+$kind: http-request
+name: Ship Order
+description: Mark order as shipped (must be PENDING or CONFIRMED)
+method: POST
+url: '{{base_url}}/api/orders/{{order_id}}/ship/'
+order: 6000

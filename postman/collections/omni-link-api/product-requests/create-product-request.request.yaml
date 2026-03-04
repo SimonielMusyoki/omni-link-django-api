@@ -1,0 +1,23 @@
+$kind: http-request
+name: Create Product Request
+method: POST
+url: '{{base_url}}/api/requests/'
+order: 2000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "title": "Stock Transfer Request",
+      "description": "Need to transfer stock from warehouse A to warehouse B",
+      "type": "TRANSFER",
+      "assigned_to": "{{user_id}}",
+      "related_product": "{{product_id}}",
+      "related_warehouse": "{{warehouse_id}}",
+      "metadata": {
+        "priority": "high",
+        "quantity": 50
+      }
+    }

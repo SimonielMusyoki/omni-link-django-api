@@ -1,0 +1,6 @@
+$kind: http-request
+name: Mark Returned
+description: Mark a DELIVERED shipment as returned
+method: POST
+url: '{{base_url}}/api/shipments/{{shipment_id}}/mark_returned/'
+order: 7000

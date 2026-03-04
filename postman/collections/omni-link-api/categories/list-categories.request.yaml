@@ -1,0 +1,15 @@
+$kind: http-request
+name: List Categories
+method: GET
+url: '{{base_url}}/api/categories/'
+order: 1000
+queryParams:
+  - key: search
+    value: ''
+    description: Search by category name
+    disabled: true
+  - key: ordering
+    value: 'name'
+    description: 'Order by: name, created_at (prefix with - for descending)'
+    disabled: true
+

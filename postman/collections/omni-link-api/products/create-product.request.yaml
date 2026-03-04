@@ -1,0 +1,21 @@
+$kind: http-request
+name: Create Product
+method: POST
+url: '{{base_url}}/api/products/'
+order: 2000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: -
+    {
+      "name": "Sample Product",
+      "description": "A sample product description",
+      "sku": "PROD-001",
+      "category": "{{category_id}}",
+      "price": "29.99",
+      "reorder_level": 10,
+      "image_url": "https://example.com/images/product.jpg",
+      "is_bundle": false
+    }

@@ -1,0 +1,17 @@
+$kind: http-request
+name: Add Stock
+description: Add stock for a product to this warehouse
+method: POST
+url: '{{base_url}}/api/warehouses/{{warehouse_id}}/add-stock/'
+order: 9000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: -
+    {
+      "product": "{{product_id}}",
+      "quantity": 100
+    }
+

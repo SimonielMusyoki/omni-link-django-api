@@ -1,0 +1,5 @@
+$kind: http-request
+name: Get Profile
+method: GET
+url: '{{base_url}}/api/auth/profile/'
+order: 6000

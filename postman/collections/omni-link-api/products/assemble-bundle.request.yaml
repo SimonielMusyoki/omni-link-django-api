@@ -1,0 +1,20 @@
+$kind: http-request
+name: Assemble Bundle
+description: >-
+  Assemble bundle units from component inventory in a warehouse.
+  Consumes each component × quantity from the warehouse and adds
+  the assembled bundle units to the same warehouse.
+method: POST
+url: '{{base_url}}/api/products/{{product_id}}/assemble/'
+order: 8000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: -
+    {
+      "warehouse": "{{warehouse_id}}",
+      "quantity": 5
+    }
+

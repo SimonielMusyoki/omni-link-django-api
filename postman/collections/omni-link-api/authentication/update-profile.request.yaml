@@ -1,0 +1,16 @@
+$kind: http-request
+name: Update Profile
+method: PATCH
+url: '{{base_url}}/api/auth/profile/'
+order: 7000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "first_name": "John",
+      "last_name": "Doe",
+      "profile_picture": "https://example.com/photo.jpg"
+    }

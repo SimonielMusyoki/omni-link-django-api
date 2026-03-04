@@ -1,0 +1,5 @@
+$kind: collection
+name: Categories
+description: CRUD for product categories
+order: 2
+

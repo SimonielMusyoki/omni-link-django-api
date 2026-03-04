@@ -1,0 +1,9 @@
+$kind: http-request
+name: Get Invitation
+method: GET
+url: '{{base_url}}/api/invitations/{{invitation_id}}/'
+order: 3000
+pathVariables:
+  - key: invitation_id
+    value: '1'
+    description: The ID of the invitation to retrieve

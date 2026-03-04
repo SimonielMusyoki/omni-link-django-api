@@ -1,0 +1,14 @@
+$kind: http-request
+name: Partial Update Warehouse
+method: PATCH
+url: '{{base_url}}/api/warehouses/{{warehouse_id}}/'
+order: 5000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "capacity": 2000
+    }

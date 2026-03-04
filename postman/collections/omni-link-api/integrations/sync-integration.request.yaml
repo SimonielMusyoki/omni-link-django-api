@@ -1,0 +1,6 @@
+$kind: http-request
+name: Sync Integration
+description: Trigger a sync for this integration. Updates the last_sync timestamp.
+method: POST
+url: '{{base_url}}/api/integrations/{{integration_id}}/sync/'
+order: 6000

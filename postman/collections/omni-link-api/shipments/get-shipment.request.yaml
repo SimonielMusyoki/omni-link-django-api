@@ -1,0 +1,9 @@
+$kind: http-request
+name: Get Shipment
+method: GET
+url: '{{base_url}}/api/shipments/{{shipment_id}}/'
+order: 3000
+pathVariables:
+  - key: shipment_id
+    value: '1'
+    description: The ID of the shipment to retrieve

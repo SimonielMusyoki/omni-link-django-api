@@ -1,0 +1,20 @@
+$kind: http-request
+name: Create Integration
+method: POST
+url: '{{base_url}}/api/integrations/'
+order: 2000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "name": "My Shopify Store",
+      "type": "SHOPIFY",
+      "status": "ACTIVE",
+      "warehouse": "{{warehouse_id}}",
+      "api_key": "your-api-key",
+      "api_secret": "your-api-secret",
+      "webhook_url": "https://example.com/webhooks/shopify"
+    }

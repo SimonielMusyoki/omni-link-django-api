@@ -1,0 +1,20 @@
+$kind: http-request
+name: List Inventory
+description: List all inventory rows across all warehouses
+method: GET
+url: '{{base_url}}/api/inventory/'
+order: 1000
+queryParams:
+  - key: product
+    value: ''
+    description: Filter by product ID
+    disabled: true
+  - key: warehouse
+    value: ''
+    description: Filter by warehouse ID
+    disabled: true
+  - key: ordering
+    value: '-updated_at'
+    description: 'Order by: quantity, updated_at (prefix with - for descending)'
+    disabled: true
+

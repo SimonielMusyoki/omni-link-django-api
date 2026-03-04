@@ -1,0 +1,22 @@
+$kind: http-request
+name: List Invitations
+method: GET
+url: '{{base_url}}/api/invitations/'
+order: 1000
+queryParams:
+  - key: status
+    value: ''
+    description: 'Filter by status: PENDING, ACCEPTED, REJECTED, EXPIRED'
+    disabled: true
+  - key: warehouse
+    value: ''
+    description: Filter by warehouse ID
+    disabled: true
+  - key: search
+    value: ''
+    description: Search by email
+    disabled: true
+  - key: ordering
+    value: '-created_at'
+    description: 'Order by: created_at, status (prefix with - for descending)'
+    disabled: true

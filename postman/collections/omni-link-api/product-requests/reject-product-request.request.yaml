@@ -1,0 +1,14 @@
+$kind: http-request
+name: Reject Product Request
+method: POST
+url: '{{base_url}}/api/requests/{{request_id}}/reject/'
+order: 5000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "reason": "Insufficient stock at fulfilling warehouse"
+    }

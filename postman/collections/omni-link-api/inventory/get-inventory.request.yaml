@@ -1,0 +1,7 @@
+$kind: http-request
+name: Get Inventory
+description: Get a single inventory record (product in a specific warehouse)
+method: GET
+url: '{{base_url}}/api/inventory/{{inventory_id}}/'
+order: 2000
+

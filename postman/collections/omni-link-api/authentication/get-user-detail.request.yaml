@@ -1,0 +1,6 @@
+$kind: http-request
+name: Get User Detail
+description: Admin only
+method: GET
+url: '{{base_url}}/api/auth/users/{{user_id}}/'
+order: 10000

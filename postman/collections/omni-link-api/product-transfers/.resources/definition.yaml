@@ -1,0 +1,7 @@
+$kind: collection
+name: Inventory Transfers
+description: >-
+  Create and view inventory transfers between warehouses. POST creates and
+  immediately executes the transfer atomically. Supports filtering by product,
+  status, from_warehouse, and to_warehouse.
+order: 7

@@ -1,0 +1,8 @@
+$kind: http-request
+name: Get Product
+method: GET
+url: '{{base_url}}/api/products/{{product_id}}/'
+order: 3000
+pathVariables:
+  - key: product_id
+    value: '1'

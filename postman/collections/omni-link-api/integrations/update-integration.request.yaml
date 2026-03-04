@@ -1,0 +1,20 @@
+$kind: http-request
+name: Update Integration
+method: PUT
+url: '{{base_url}}/api/integrations/{{integration_id}}/'
+order: 4000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "name": "My Updated Shopify Store",
+      "type": "SHOPIFY",
+      "status": "ACTIVE",
+      "warehouse": "{{warehouse_id}}",
+      "api_key": "updated-api-key",
+      "api_secret": "updated-api-secret",
+      "webhook_url": "https://example.com/webhooks/shopify-updated"
+    }

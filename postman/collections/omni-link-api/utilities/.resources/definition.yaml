@@ -1,0 +1,4 @@
+$kind: collection
+name: Utilities
+description: Health check, API documentation, and schema endpoints
+order: 13

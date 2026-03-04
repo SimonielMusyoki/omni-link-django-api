@@ -1,0 +1,17 @@
+$kind: http-request
+name: Update Warehouse
+method: PUT
+url: '{{base_url}}/api/warehouses/{{warehouse_id}}/'
+order: 4000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "name": "Main Warehouse Updated",
+      "location": "Nairobi, Kenya",
+      "address": "123 Industrial Area",
+      "capacity": 1500
+    }

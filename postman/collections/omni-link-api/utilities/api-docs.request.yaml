@@ -1,0 +1,9 @@
+$kind: http-request
+name: API Docs (Swagger UI)
+description: Open the interactive Swagger UI documentation in a browser
+method: GET
+url: '{{base_url}}/api/docs/'
+order: 3000
+auth:
+  type: noauth
+

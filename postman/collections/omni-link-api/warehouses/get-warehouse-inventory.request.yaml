@@ -1,0 +1,7 @@
+$kind: http-request
+name: Get Warehouse Inventory
+description: List every product / quantity in this warehouse
+method: GET
+url: '{{base_url}}/api/warehouses/{{warehouse_id}}/inventory/'
+order: 8000
+

@@ -1,0 +1,26 @@
+$kind: http-request
+name: Create Shipment
+method: POST
+url: '{{base_url}}/api/shipments/'
+order: 2000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "tracking_number": "TRACK123456789",
+      "order": "{{order_id}}",
+      "warehouse": "{{warehouse_id}}",
+      "recipient_name": "John Doe",
+      "recipient_email": "john.doe@example.com",
+      "shipping_address": "123 Main St",
+      "shipping_city": "Nairobi",
+      "shipping_state": "Nairobi",
+      "shipping_zip": "00100",
+      "shipping_country": "Kenya",
+      "carrier": "FedEx",
+      "estimated_delivery": "2026-04-15T00:00:00Z",
+      "weight": "2.50"
+    }

@@ -1,0 +1,15 @@
+$kind: http-request
+name: Create Invitation
+method: POST
+url: '{{base_url}}/api/invitations/'
+order: 2000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "email": "newuser@example.com",
+      "warehouse": "{{warehouse_id}}"
+    }

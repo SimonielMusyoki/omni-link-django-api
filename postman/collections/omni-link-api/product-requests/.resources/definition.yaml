@@ -1,0 +1,6 @@
+$kind: collection
+name: Product Requests
+description: >-
+  CRUD for business requests (transfer, adjustment, refund, other).
+  Includes approve, reject, and assign workflow actions.
+order: 10

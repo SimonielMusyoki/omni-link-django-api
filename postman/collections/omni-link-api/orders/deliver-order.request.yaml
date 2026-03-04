@@ -1,0 +1,6 @@
+$kind: http-request
+name: Deliver Order
+description: Mark order as delivered (must be SHIPPED)
+method: POST
+url: '{{base_url}}/api/orders/{{order_id}}/deliver/'
+order: 7000

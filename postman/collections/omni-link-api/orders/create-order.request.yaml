@@ -1,0 +1,27 @@
+$kind: http-request
+name: Create Order
+method: POST
+url: '{{base_url}}/api/orders/'
+order: 2000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "order_number": "ORD-001",
+      "customer_name": "John Doe",
+      "customer_email": "john.doe@example.com",
+      "status": "PENDING",
+      "total_amount": "59.98",
+      "warehouse": "{{warehouse_id}}",
+      "items": [
+        {
+          "product": "{{product_id}}",
+          "quantity": 2,
+          "unit_price": "29.99",
+          "total_price": "59.98"
+        }
+      ]
+    }

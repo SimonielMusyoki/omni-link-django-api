@@ -1,0 +1,6 @@
+$kind: collection
+name: Orders
+description: >-
+  CRUD for customer orders with status workflow actions: ship, deliver, cancel.
+  Each order has line items accessible via the items action.
+order: 8
