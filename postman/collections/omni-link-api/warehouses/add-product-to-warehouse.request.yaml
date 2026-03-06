@@ -1,0 +1,21 @@
+$kind: http-request
+name: Add Product to Warehouse
+method: POST
+url: '{{base_url}}/api/warehouses/:id/products/'
+order: 8000
+pathVariables:
+  - key: id
+    value: '{{warehouse_id}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "product": "{{product_id}}",
+      "quantity": 100,
+      "location": "A-1-1",
+      "reorder_point": 20,
+      "reorder_quantity": 50
+    }

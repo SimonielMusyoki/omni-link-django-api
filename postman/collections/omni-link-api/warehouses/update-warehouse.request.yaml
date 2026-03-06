@@ -1,8 +1,11 @@
 $kind: http-request
 name: Update Warehouse
 method: PUT
-url: '{{base_url}}/api/warehouses/{{warehouse_id}}/'
+url: '{{base_url}}/api/warehouses/:id/'
 order: 4000
+pathVariables:
+  - key: id
+    value: '{{warehouse_id}}'
 headers:
   - key: Content-Type
     value: application/json
@@ -11,7 +14,16 @@ body:
   content: |-
     {
       "name": "Main Warehouse Updated",
-      "location": "Nairobi, Kenya",
-      "address": "123 Industrial Area",
-      "capacity": 1500
+      "code": "WH-001",
+      "address": {
+        "street": "456 Industrial Blvd",
+        "city": "Chicago",
+        "state": "IL",
+        "postal_code": "60602",
+        "country": "US"
+      },
+      "contact_name": "Jane Manager",
+      "contact_email": "warehouse.updated@example.com",
+      "contact_phone": "+1234567891",
+      "is_active": true
     }

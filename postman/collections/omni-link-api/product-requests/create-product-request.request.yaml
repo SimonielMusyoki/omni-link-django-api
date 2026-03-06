@@ -1,7 +1,7 @@
 $kind: http-request
 name: Create Product Request
 method: POST
-url: '{{base_url}}/api/requests/'
+url: '{{base_url}}/api/product-requests/'
 order: 2000
 headers:
   - key: Content-Type
@@ -10,14 +10,21 @@ body:
   type: json
   content: |-
     {
-      "title": "Stock Transfer Request",
-      "description": "Need to transfer stock from warehouse A to warehouse B",
-      "type": "TRANSFER",
-      "assigned_to": "{{user_id}}",
-      "related_product": "{{product_id}}",
-      "related_warehouse": "{{warehouse_id}}",
-      "metadata": {
-        "priority": "high",
-        "quantity": 50
-      }
+      "product": "{{product_id}}",
+      "warehouse": "{{warehouse_id}}",
+      "quantity_requested": 100,
+      "priority": "high",
+      "reason": "Low stock alert - need replenishment",
+      "notes": "Urgent request for upcoming sale"
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 201) {
+        const response = pm.response.json();
+        if (response.id) {
+          pm.collectionVariables.set("product_request_id", response.id);
+          console.log("Product Request ID saved:", response.id);
+        }
+      }

@@ -1,0 +1,27 @@
+$kind: http-request
+name: Bulk Import Products
+method: POST
+url: '{{base_url}}/api/products/bulk-import/'
+order: 9000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "products": [
+        {
+          "name": "Bulk Product 1",
+          "sku": "BULK-001",
+          "price": "19.99",
+          "category": "{{category_id}}"
+        },
+        {
+          "name": "Bulk Product 2",
+          "sku": "BULK-002",
+          "price": "24.99",
+          "category": "{{category_id}}"
+        }
+      ]
+    }

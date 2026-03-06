@@ -1,16 +1,29 @@
 $kind: http-request
 name: Google Login
 method: POST
-url: '{{base_url}}/api/auth/google/login/'
+url: '{{base_url}}/api/auth/google/'
 order: 5000
-auth:
-  type: noauth
 headers:
   - key: Content-Type
     value: application/json
+auth:
+  type: noauth
 body:
   type: json
   content: |-
     {
-      "access_token": "{{google_access_token}}"
+      "access_token": "google-oauth-access-token"
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 200) {
+          const response = pm.response.json();
+          if (response.access) {
+              pm.collectionVariables.set("access_token", response.access);
+          }
+          if (response.refresh) {
+              pm.collectionVariables.set("refresh_token", response.refresh);
+          }
+      }

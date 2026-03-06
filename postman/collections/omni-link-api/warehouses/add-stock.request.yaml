@@ -9,7 +9,7 @@ headers:
     value: application/json
 body:
   type: json
-  content: -
+  content: |-
     {
       "product": "{{product_id}}",
       "quantity": 100

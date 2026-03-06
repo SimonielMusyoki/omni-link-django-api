@@ -1,21 +1,28 @@
 $kind: http-request
 name: Update Product
 method: PUT
-url: '{{base_url}}/api/products/{{product_id}}/'
+url: '{{base_url}}/api/products/:id/'
 order: 4000
+pathVariables:
+  - key: id
+    value: '{{product_id}}'
 headers:
   - key: Content-Type
     value: application/json
 body:
   type: json
-  content: -
+  content: |-
     {
-      "name": "Updated Product",
-      "description": "Updated product description",
-      "sku": "PROD-001",
+      "name": "Updated Test Product",
+      "sku": "TEST-SKU-001",
+      "description": "An updated test product",
       "category": "{{category_id}}",
-      "price": "39.99",
-      "reorder_level": 15,
-      "image_url": "https://example.com/images/product-updated.jpg",
-      "is_bundle": false
+      "price": "34.99",
+      "cost": "17.50",
+      "weight": "0.5",
+      "weight_unit": "kg",
+      "is_active": true,
+      "is_kit": false,
+      "barcode": "1234567890123",
+      "min_stock_level": 15
     }

@@ -1,0 +1,14 @@
+$kind: http-request
+name: Partial Update Order
+method: PATCH
+url: '{{base_url}}/api/orders/{{order_id}}/'
+order: 5000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "notes": "Partial update - new delivery notes"
+    }

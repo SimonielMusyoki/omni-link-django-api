@@ -2,5 +2,4 @@ $kind: http-request
 name: Delete Shipment
 method: DELETE
 url: '{{base_url}}/api/shipments/{{shipment_id}}/'
-order: 9000
-
+order: 6000

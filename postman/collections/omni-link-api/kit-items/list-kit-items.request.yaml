@@ -4,12 +4,9 @@ method: GET
 url: '{{base_url}}/api/kit-items/'
 order: 1000
 queryParams:
-  - key: bundle
-    value: ''
-    description: Filter by bundle (parent) product ID
+  - key: page
+    value: '1'
     disabled: true
-  - key: component
+  - key: kit_product
     value: ''
-    description: Filter by component product ID
     disabled: true
-

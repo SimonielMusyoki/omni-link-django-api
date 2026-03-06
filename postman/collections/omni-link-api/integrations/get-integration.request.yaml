@@ -3,7 +3,3 @@ name: Get Integration
 method: GET
 url: '{{base_url}}/api/integrations/{{integration_id}}/'
 order: 3000
-pathVariables:
-  - key: integration_id
-    value: '1'
-    description: The ID of the integration to retrieve

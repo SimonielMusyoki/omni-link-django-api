@@ -1,0 +1,15 @@
+$kind: http-request
+name: List Warehouse Products
+method: GET
+url: '{{base_url}}/api/warehouses/:id/products/'
+order: 7000
+pathVariables:
+  - key: id
+    value: '{{warehouse_id}}'
+queryParams:
+  - key: page
+    value: '1'
+    disabled: true
+  - key: page_size
+    value: '20'
+    disabled: true

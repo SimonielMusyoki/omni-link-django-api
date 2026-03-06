@@ -1,0 +1,5 @@
+$kind: http-request
+name: Delete Invitation
+method: DELETE
+url: '{{base_url}}/api/invitations/{{invitation_id}}/'
+order: 4000

@@ -1,26 +1,18 @@
 $kind: http-request
-name: List Transfers
+name: List Product Transfers
 method: GET
-url: '{{base_url}}/api/transfers/'
+url: '{{base_url}}/api/product-transfers/'
 order: 1000
 queryParams:
-  - key: product
-    value: ''
-    description: Filter by product ID
+  - key: page
+    value: '1'
     disabled: true
   - key: status
     value: ''
-    description: 'Filter by status: PENDING, COMPLETED, FAILED'
     disabled: true
-  - key: from_warehouse
+  - key: source_warehouse
     value: ''
-    description: Filter by source warehouse ID
     disabled: true
-  - key: to_warehouse
+  - key: destination_warehouse
     value: ''
-    description: Filter by destination warehouse ID
-    disabled: true
-  - key: ordering
-    value: '-created_at'
-    description: 'Order by: created_at, quantity (prefix with - for descending)'
     disabled: true

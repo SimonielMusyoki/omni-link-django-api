@@ -1,7 +1,5 @@
 $kind: http-request
 name: Get Order Items
-description: Get all line items for a specific order
 method: GET
 url: '{{base_url}}/api/orders/{{order_id}}/items/'
 order: 9000
-

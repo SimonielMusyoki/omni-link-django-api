@@ -3,15 +3,31 @@ name: Login
 method: POST
 url: '{{base_url}}/api/auth/login/'
 order: 2000
-auth:
-  type: noauth
 headers:
   - key: Content-Type
     value: application/json
+auth:
+  type: noauth
 body:
   type: json
   content: |-
     {
       "email": "user@example.com",
-      "password": "SecurePass123!"
+      "password": "securePassword123!"
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 200) {
+          const response = pm.response.json();
+          if (response.access) {
+              pm.collectionVariables.set("access_token", response.access);
+          }
+          if (response.refresh) {
+              pm.collectionVariables.set("refresh_token", response.refresh);
+          }
+          if (response.user && response.user.id) {
+              pm.collectionVariables.set("user_id", response.user.id);
+          }
+      }

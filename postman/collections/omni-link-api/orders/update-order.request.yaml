@@ -10,18 +10,22 @@ body:
   type: json
   content: |-
     {
-      "order_number": "ORD-001",
       "customer_name": "John Doe Updated",
       "customer_email": "john.updated@example.com",
-      "status": "PENDING",
-      "total_amount": "89.97",
-      "warehouse": "{{warehouse_id}}",
-      "items": [
-        {
-          "product": "{{product_id}}",
-          "quantity": 3,
-          "unit_price": "29.99",
-          "total_price": "89.97"
-        }
-      ]
+      "customer_phone": "+1234567890",
+      "shipping_address": {
+        "street": "456 Oak Ave",
+        "city": "Los Angeles",
+        "state": "CA",
+        "postal_code": "90001",
+        "country": "US"
+      },
+      "billing_address": {
+        "street": "456 Oak Ave",
+        "city": "Los Angeles",
+        "state": "CA",
+        "postal_code": "90001",
+        "country": "US"
+      },
+      "notes": "Updated delivery instructions"
     }

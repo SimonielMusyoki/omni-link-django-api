@@ -4,19 +4,12 @@ method: GET
 url: '{{base_url}}/api/integrations/'
 order: 1000
 queryParams:
-  - key: type
-    value: ''
-    description: 'Filter by type: SHOPIFY, AMAZON, EBAY, CUSTOM'
+  - key: page
+    value: '1'
     disabled: true
-  - key: status
+  - key: platform
     value: ''
-    description: 'Filter by status: ACTIVE, INACTIVE'
     disabled: true
-  - key: warehouse
+  - key: is_active
     value: ''
-    description: Filter by warehouse ID
-    disabled: true
-  - key: search
-    value: ''
-    description: Search by name
     disabled: true

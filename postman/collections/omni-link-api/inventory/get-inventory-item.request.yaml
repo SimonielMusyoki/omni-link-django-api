@@ -1,0 +1,8 @@
+$kind: http-request
+name: Get Inventory Item
+method: GET
+url: '{{base_url}}/api/inventory/{{inventory_id}}/'
+order: 2000
+pathVariables:
+  - key: inventory_id
+    value: '{{inventory_id}}'

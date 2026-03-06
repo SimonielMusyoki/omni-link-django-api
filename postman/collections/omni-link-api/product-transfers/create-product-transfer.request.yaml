@@ -1,21 +1,29 @@
 $kind: http-request
-name: Create Transfer
-description: >-
-  Create AND execute a transfer atomically. Stock is moved from
-  from_warehouse to to_warehouse immediately.
+name: Create Product Transfer
 method: POST
-url: '{{base_url}}/api/transfers/'
+url: '{{base_url}}/api/product-transfers/'
 order: 2000
 headers:
   - key: Content-Type
     value: application/json
 body:
   type: json
-  content: -
+  content: |-
     {
+      "source_warehouse": "{{warehouse_id}}",
+      "destination_warehouse": "{{destination_warehouse_id}}",
       "product": "{{product_id}}",
-      "from_warehouse": "{{warehouse_id}}",
-      "to_warehouse": 2,
-      "quantity": 50,
-      "notes": "Seasonal rebalancing"
+      "quantity": 25,
+      "notes": "Stock rebalancing transfer"
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 201) {
+        const response = pm.response.json();
+        if (response.id) {
+          pm.collectionVariables.set("transfer_id", response.id);
+          console.log("Transfer ID saved:", response.id);
+        }
+      }

@@ -1,0 +1,14 @@
+$kind: http-request
+name: Resend Invitation
+method: POST
+url: '{{base_url}}/api/invitations/{{invitation_id}}/resend/'
+order: 5000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "message": "Reminder: You have been invited to join our system."
+    }

@@ -1,6 +1,5 @@
 $kind: http-request
 name: Create Kit Item
-description: Add a component product to a bundle
 method: POST
 url: '{{base_url}}/api/kit-items/'
 order: 2000
@@ -9,10 +8,20 @@ headers:
     value: application/json
 body:
   type: json
-  content: -
+  content: |-
     {
-      "bundle": "{{product_id}}",
-      "component": 2,
-      "quantity": 3
+      "kit_product": "{{product_id}}",
+      "component_product": "{{component_product_id}}",
+      "quantity": 2
     }
-
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 201) {
+          const response = pm.response.json();
+          if (response.id) {
+              pm.collectionVariables.set("kit_item_id", response.id);
+              console.log("Kit Item ID saved:", response.id);
+          }
+      }

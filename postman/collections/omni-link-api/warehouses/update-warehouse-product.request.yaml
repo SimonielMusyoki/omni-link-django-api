@@ -1,0 +1,22 @@
+$kind: http-request
+name: Update Warehouse Product
+method: PUT
+url: '{{base_url}}/api/warehouses/:warehouse_id/products/:product_id/'
+order: 10000
+pathVariables:
+  - key: warehouse_id
+    value: '{{warehouse_id}}'
+  - key: product_id
+    value: '{{product_id}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "quantity": 150,
+      "location": "A-1-2",
+      "reorder_point": 25,
+      "reorder_quantity": 75
+    }

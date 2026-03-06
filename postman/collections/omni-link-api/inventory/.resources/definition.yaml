@@ -1,7 +1,4 @@
 $kind: collection
 name: Inventory
-description: >-
-  Read-only view over all inventory rows (product × warehouse).
-  Supports filtering and an aggregated per-product summary endpoint.
-order: 6
-
+description: Inventory tracking and management endpoints
+order: 7000

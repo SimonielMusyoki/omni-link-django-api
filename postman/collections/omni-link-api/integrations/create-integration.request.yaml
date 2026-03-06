@@ -10,11 +10,24 @@ body:
   type: json
   content: |-
     {
-      "name": "My Shopify Store",
-      "type": "SHOPIFY",
-      "status": "ACTIVE",
-      "warehouse": "{{warehouse_id}}",
+      "name": "Shopify Store",
+      "platform": "shopify",
       "api_key": "your-api-key",
       "api_secret": "your-api-secret",
-      "webhook_url": "https://example.com/webhooks/shopify"
+      "store_url": "https://your-store.myshopify.com",
+      "is_active": true,
+      "sync_products": true,
+      "sync_orders": true,
+      "sync_inventory": true
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 201) {
+        const response = pm.response.json();
+        if (response.id) {
+          pm.collectionVariables.set("integration_id", response.id);
+          console.log("Integration ID saved:", response.id);
+        }
+      }

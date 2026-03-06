@@ -4,23 +4,15 @@ method: GET
 url: '{{base_url}}/api/shipments/'
 order: 1000
 queryParams:
+  - key: page
+    value: '1'
+    disabled: true
   - key: status
     value: ''
-    description: 'Filter by status: PROCESSING, IN_TRANSIT, DELIVERED, RETURNED, FAILED'
+    disabled: true
+  - key: carrier
+    value: ''
     disabled: true
   - key: order
     value: ''
-    description: Filter by order ID
-    disabled: true
-  - key: warehouse
-    value: ''
-    description: Filter by warehouse ID
-    disabled: true
-  - key: search
-    value: ''
-    description: Search by tracking number, recipient name, or recipient email
-    disabled: true
-  - key: ordering
-    value: '-created_at'
-    description: 'Order by: created_at, status, estimated_delivery (prefix with - for descending)'
     disabled: true

@@ -1,0 +1,15 @@
+$kind: http-request
+name: Partial Update Shipment
+method: PATCH
+url: '{{base_url}}/api/shipments/{{shipment_id}}/'
+order: 5000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "tracking_number": "1Z999AA10123456785",
+      "notes": "Tracking number updated"
+    }

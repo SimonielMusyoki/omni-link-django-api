@@ -1,17 +1,20 @@
 $kind: http-request
 name: Accept Invitation
-description: Accept a specific invitation by ID (authenticated user)
 method: POST
-url: '{{base_url}}/api/invitations/{{invitation_id}}/accept/'
-order: 4000
+url: '{{base_url}}/api/invitations/accept/'
+order: 6000
 headers:
   - key: Content-Type
     value: application/json
+auth:
+  type: noauth
 body:
   type: json
   content: |-
     {
+      "token": "{{invitation_token}}",
+      "first_name": "New",
+      "last_name": "User",
       "password": "SecurePassword123!",
-      "first_name": "John",
-      "last_name": "Doe"
+      "password_confirm": "SecurePassword123!"
     }

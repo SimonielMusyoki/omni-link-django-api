@@ -1,15 +1,18 @@
 $kind: http-request
 name: Partial Update Product
 method: PATCH
-url: '{{base_url}}/api/products/{{product_id}}/'
+url: '{{base_url}}/api/products/:id/'
 order: 5000
+pathVariables:
+  - key: id
+    value: '{{product_id}}'
 headers:
   - key: Content-Type
     value: application/json
 body:
   type: json
-  content: -
+  content: |-
     {
-      "price": "34.99",
-      "reorder_level": 20
+      "price": "39.99",
+      "is_active": true
     }

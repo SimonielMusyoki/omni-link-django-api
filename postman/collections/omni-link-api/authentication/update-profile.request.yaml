@@ -1,6 +1,6 @@
 $kind: http-request
 name: Update Profile
-method: PATCH
+method: PUT
 url: '{{base_url}}/api/auth/profile/'
 order: 7000
 headers:
@@ -12,5 +12,5 @@ body:
     {
       "first_name": "John",
       "last_name": "Doe",
-      "profile_picture": "https://example.com/photo.jpg"
+      "phone": "+1234567890"
     }

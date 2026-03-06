@@ -10,11 +10,13 @@ body:
   type: json
   content: |-
     {
-      "name": "My Updated Shopify Store",
-      "type": "SHOPIFY",
-      "status": "ACTIVE",
-      "warehouse": "{{warehouse_id}}",
+      "name": "Shopify Store - Updated",
+      "platform": "shopify",
       "api_key": "updated-api-key",
       "api_secret": "updated-api-secret",
-      "webhook_url": "https://example.com/webhooks/shopify-updated"
+      "store_url": "https://your-store.myshopify.com",
+      "is_active": true,
+      "sync_products": true,
+      "sync_orders": true,
+      "sync_inventory": true
     }

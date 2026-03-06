@@ -1,0 +1,15 @@
+$kind: http-request
+name: Generate Shipping Label
+method: POST
+url: '{{base_url}}/api/shipments/{{shipment_id}}/label/'
+order: 9000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "format": "pdf",
+      "size": "4x6"
+    }

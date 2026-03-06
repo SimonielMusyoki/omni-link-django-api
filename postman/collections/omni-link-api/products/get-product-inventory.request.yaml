@@ -1,7 +1,8 @@
 $kind: http-request
 name: Get Product Inventory
-description: Show this product's stock in every warehouse
 method: GET
-url: '{{base_url}}/api/products/{{product_id}}/inventory/'
+url: '{{base_url}}/api/products/:id/inventory/'
 order: 7000
-
+pathVariables:
+  - key: id
+    value: '{{product_id}}'

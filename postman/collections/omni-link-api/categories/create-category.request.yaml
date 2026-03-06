@@ -8,9 +8,20 @@ headers:
     value: application/json
 body:
   type: json
-  content: -
+  content: |-
     {
       "name": "Electronics",
-      "description": "Electronic devices and accessories"
+      "description": "Electronic devices and accessories",
+      "parent": null,
+      "is_active": true
     }
-
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 201) {
+          const response = pm.response.json();
+          if (response.id) {
+              pm.collectionVariables.set("category_id", response.id);
+          }
+      }

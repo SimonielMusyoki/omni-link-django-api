@@ -4,19 +4,18 @@ method: GET
 url: '{{base_url}}/api/products/'
 order: 1000
 queryParams:
-  - key: category
-    value: ''
-    description: Filter by category ID
+  - key: page
+    value: '1'
     disabled: true
-  - key: is_bundle
-    value: ''
-    description: 'Filter by bundle status: true or false'
+  - key: page_size
+    value: '20'
     disabled: true
   - key: search
     value: ''
-    description: Search by name, SKU, or description
     disabled: true
-  - key: ordering
-    value: '-created_at'
-    description: 'Order by: name, price, created_at (prefix with - for descending)'
+  - key: category
+    value: ''
+    disabled: true
+  - key: is_active
+    value: 'true'
     disabled: true

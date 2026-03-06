@@ -1,5 +1,4 @@
 $kind: collection
 name: Categories
-description: CRUD for product categories
-order: 2
-
+description: Product category management endpoints for organizing products
+order: 3000

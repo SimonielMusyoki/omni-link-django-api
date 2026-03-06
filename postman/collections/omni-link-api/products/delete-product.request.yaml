@@ -1,5 +1,8 @@
 $kind: http-request
 name: Delete Product
 method: DELETE
-url: '{{base_url}}/api/products/{{product_id}}/'
+url: '{{base_url}}/api/products/:id/'
 order: 6000
+pathVariables:
+  - key: id
+    value: '{{product_id}}'

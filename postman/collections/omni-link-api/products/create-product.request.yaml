@@ -8,14 +8,29 @@ headers:
     value: application/json
 body:
   type: json
-  content: -
+  content: |-
     {
-      "name": "Sample Product",
-      "description": "A sample product description",
-      "sku": "PROD-001",
+      "name": "Test Product",
+      "sku": "TEST-SKU-001",
+      "description": "A test product for the API",
       "category": "{{category_id}}",
       "price": "29.99",
-      "reorder_level": 10,
-      "image_url": "https://example.com/images/product.jpg",
-      "is_bundle": false
+      "cost": "15.00",
+      "weight": "0.5",
+      "weight_unit": "kg",
+      "is_active": true,
+      "is_kit": false,
+      "barcode": "1234567890123",
+      "min_stock_level": 10
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 201) {
+          const response = pm.response.json();
+          if (response.id) {
+              pm.collectionVariables.set("product_id", response.id);
+              console.log("Product ID saved:", response.id);
+          }
+      }

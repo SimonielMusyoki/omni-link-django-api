@@ -1,0 +1,16 @@
+$kind: http-request
+name: Update Shipment Status
+method: POST
+url: '{{base_url}}/api/shipments/{{shipment_id}}/status/'
+order: 7000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "status": "in_transit",
+      "location": "Distribution Center, Chicago, IL",
+      "notes": "Package has left the facility"
+    }

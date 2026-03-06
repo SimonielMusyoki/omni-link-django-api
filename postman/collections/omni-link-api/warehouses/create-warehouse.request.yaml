@@ -11,7 +11,26 @@ body:
   content: |-
     {
       "name": "Main Warehouse",
-      "location": "Nairobi, Kenya",
-      "address": "123 Industrial Area",
-      "capacity": 1000
+      "code": "WH-001",
+      "address": {
+        "street": "123 Industrial Blvd",
+        "city": "Chicago",
+        "state": "IL",
+        "postal_code": "60601",
+        "country": "US"
+      },
+      "contact_name": "John Manager",
+      "contact_email": "warehouse@example.com",
+      "contact_phone": "+1234567890",
+      "is_active": true
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 201) {
+          const response = pm.response.json();
+          if (response.id) {
+              pm.collectionVariables.set("warehouse_id", response.id);
+          }
+      }

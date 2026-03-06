@@ -1,20 +1,18 @@
 $kind: http-request
 name: List Inventory
-description: List all inventory rows across all warehouses
 method: GET
 url: '{{base_url}}/api/inventory/'
 order: 1000
 queryParams:
-  - key: product
-    value: ''
-    description: Filter by product ID
+  - key: page
+    value: '1'
     disabled: true
   - key: warehouse
     value: ''
-    description: Filter by warehouse ID
     disabled: true
-  - key: ordering
-    value: '-updated_at'
-    description: 'Order by: quantity, updated_at (prefix with - for descending)'
+  - key: product
+    value: ''
     disabled: true
-
+  - key: low_stock
+    value: 'true'
+    disabled: true

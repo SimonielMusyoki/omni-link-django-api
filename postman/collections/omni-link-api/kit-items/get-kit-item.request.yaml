@@ -1,6 +1,8 @@
 $kind: http-request
 name: Get Kit Item
 method: GET
-url: '{{base_url}}/api/kit-items/{{kit_item_id}}/'
+url: '{{base_url}}/api/kit-items/:id/'
 order: 3000
-
+pathVariables:
+  - key: id
+    value: '{{kit_item_id}}'

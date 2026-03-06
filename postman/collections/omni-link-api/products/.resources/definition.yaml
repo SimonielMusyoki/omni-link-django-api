@@ -1,6 +1,4 @@
 $kind: collection
 name: Products
-description: >-
-  CRUD for catalogue products. Products are warehouse-agnostic; stock is tracked
-  via the Inventory endpoints. Supports bundles (is_bundle=true) with assemble/disassemble actions.
-order: 3
+description: Product catalog management endpoints for creating, updating, and managing products
+order: 5000

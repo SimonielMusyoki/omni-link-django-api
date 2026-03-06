@@ -11,5 +11,23 @@ body:
   content: |-
     {
       "email": "newuser@example.com",
-      "warehouse": "{{warehouse_id}}"
+      "role": "staff",
+      "warehouses": ["{{warehouse_id}}"],
+      "message": "You have been invited to join our inventory management system.",
+      "expires_in_days": 7
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 201) {
+        const response = pm.response.json();
+        if (response.id) {
+          pm.collectionVariables.set("invitation_id", response.id);
+          console.log("Invitation ID saved:", response.id);
+        }
+        if (response.token) {
+          pm.collectionVariables.set("invitation_token", response.token);
+          console.log("Invitation Token saved:", response.token);
+        }
+      }

@@ -1,9 +1,5 @@
 $kind: http-request
 name: Get Product Request
 method: GET
-url: '{{base_url}}/api/requests/{{request_id}}/'
+url: '{{base_url}}/api/product-requests/{{product_request_id}}/'
 order: 3000
-pathVariables:
-  - key: request_id
-    value: '1'
-    description: The ID of the request to retrieve

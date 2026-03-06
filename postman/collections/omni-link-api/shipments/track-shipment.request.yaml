@@ -1,0 +1,5 @@
+$kind: http-request
+name: Track Shipment
+method: GET
+url: '{{base_url}}/api/shipments/{{shipment_id}}/track/'
+order: 8000

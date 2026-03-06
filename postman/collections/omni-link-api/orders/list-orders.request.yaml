@@ -4,19 +4,18 @@ method: GET
 url: '{{base_url}}/api/orders/'
 order: 1000
 queryParams:
+  - key: page
+    value: '1'
+    disabled: true
   - key: status
     value: ''
-    description: 'Filter by status: PENDING, CONFIRMED, SHIPPED, DELIVERED, CANCELLED'
     disabled: true
-  - key: warehouse
+  - key: customer_email
     value: ''
-    description: Filter by warehouse ID
     disabled: true
-  - key: search
+  - key: created_after
     value: ''
-    description: Search by order number, customer email, or customer name
     disabled: true
-  - key: ordering
-    value: '-created_at'
-    description: 'Order by: created_at, status, total_amount (prefix with - for descending)'
+  - key: created_before
+    value: ''
     disabled: true

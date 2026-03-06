@@ -1,7 +1,4 @@
 $kind: collection
-name: Kit Items (Bundle Components)
-description: >-
-  Manage the bill-of-materials for product bundles. Each kit item represents
-  a component product and its quantity within a bundle.
-order: 5
-
+name: Kit Items
+description: Kit item management for bundled products
+order: 6000

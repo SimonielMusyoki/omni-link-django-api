@@ -1,6 +1,8 @@
 $kind: http-request
 name: Delete User
-description: Admin only
 method: DELETE
-url: '{{base_url}}/api/auth/users/{{user_id}}/'
+url: '{{base_url}}/api/auth/users/:id/'
 order: 12000
+pathVariables:
+  - key: id
+    value: '{{user_id}}'

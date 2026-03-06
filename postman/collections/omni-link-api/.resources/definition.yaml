@@ -1,26 +1,83 @@
 $kind: collection
 name: Omni Link API
-description: >-
-  Complete API collection for the Omni Link platform - a multi-warehouse
-  inventory management system with products, categories, bundles, inventory
-  tracking, orders, shipments, product requests, invitations, and integrations.
+description: |-
+  # Omni Link API Collection
+
+  A comprehensive API for managing multi-channel e-commerce operations including:
+
+  - **Authentication**: User registration, login, JWT token management
+  - **Products**: Product catalog management with categories and kit items
+  - **Inventory**: Stock tracking across multiple warehouses
+  - **Orders**: Order creation, processing, and fulfillment
+  - **Shipments**: Shipping management and tracking
+  - **Integrations**: Third-party platform connections (Shopify, WooCommerce, etc.)
+  - **Product Requests**: Internal product request workflows
+  - **Invitations**: User invitation management
+
+  ## Authentication
+
+  This API uses JWT Bearer token authentication. After logging in, include the access token in the Authorization header:
+
+  ```
+  Authorization: Bearer {{access_token}}
+  ```
+
+  ## Base URL
+
+  Set the `base_url` variable to your API server URL (e.g., `http://localhost:8000` for development).
+
+variables:
+  - key: base_url
+    value: 'http://localhost:8000'
+    description: Base URL for the API server
+  - key: access_token
+    value: ''
+    description: JWT access token obtained from login
+  - key: refresh_token
+    value: ''
+    description: JWT refresh token for obtaining new access tokens
+  - key: user_id
+    value: ''
+    description: Current user ID
+  - key: category_id
+    value: ''
+    description: Category ID for product operations
+  - key: warehouse_id
+    value: ''
+    description: Warehouse ID for inventory operations
+  - key: product_id
+    value: ''
+    description: Product ID for product operations
+  - key: kit_item_id
+    value: ''
+    description: Kit item ID
+  - key: inventory_id
+    value: ''
+    description: Inventory record ID
+  - key: transfer_id
+    value: ''
+    description: Product transfer ID
+  - key: integration_id
+    value: ''
+    description: Integration ID
+  - key: order_id
+    value: ''
+    description: Order ID
+  - key: shipment_id
+    value: ''
+    description: Shipment ID
+  - key: product_request_id
+    value: ''
+    description: Product request ID
+  - key: invitation_id
+    value: ''
+    description: Invitation ID
+  - key: invitation_token
+    value: ''
+    description: Invitation acceptance token
+
 auth:
   type: bearer
   credentials:
-    token: "{{access_token}}"
-variables:
-  base_url: http://localhost:8000
-  access_token: ""
-  refresh_token: ""
-  user_id: "1"
-  product_id: "1"
-  category_id: "1"
-  warehouse_id: "1"
-  kit_item_id: "1"
-  inventory_id: "1"
-  transfer_id: "1"
-  integration_id: "1"
-  order_id: "1"
-  shipment_id: "1"
-  request_id: "1"
-  invitation_id: "1"
+    - key: token
+      value: '{{access_token}}'

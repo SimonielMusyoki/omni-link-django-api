@@ -1,9 +1,7 @@
 $kind: http-request
-name: API Schema (OpenAPI)
-description: Download the OpenAPI 3.0 schema for this API
+name: API Schema
 method: GET
 url: '{{base_url}}/api/schema/'
 order: 2000
 auth:
   type: noauth
-

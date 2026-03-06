@@ -10,17 +10,32 @@ body:
   type: json
   content: |-
     {
-      "tracking_number": "TRACK123456789",
       "order": "{{order_id}}",
-      "warehouse": "{{warehouse_id}}",
-      "recipient_name": "John Doe",
-      "recipient_email": "john.doe@example.com",
-      "shipping_address": "123 Main St",
-      "shipping_city": "Nairobi",
-      "shipping_state": "Nairobi",
-      "shipping_zip": "00100",
-      "shipping_country": "Kenya",
-      "carrier": "FedEx",
-      "estimated_delivery": "2026-04-15T00:00:00Z",
-      "weight": "2.50"
+      "carrier": "fedex",
+      "service_type": "ground",
+      "tracking_number": "794644790132",
+      "weight": "2.5",
+      "dimensions": {
+        "length": "12",
+        "width": "8",
+        "height": "6"
+      },
+      "shipping_cost": "15.99",
+      "estimated_delivery": "2024-12-20",
+      "notes": "Handle with care"
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 201) {
+        const response = pm.response.json();
+        if (response.id) {
+          pm.collectionVariables.set("shipment_id", response.id);
+          console.log("Shipment ID saved:", response.id);
+        }
+        if (response.tracking_number) {
+          pm.collectionVariables.set("tracking_number", response.tracking_number);
+          console.log("Tracking Number saved:", response.tracking_number);
+        }
+      }

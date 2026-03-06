@@ -1,6 +1,18 @@
 $kind: http-request
 name: List Users
-description: Admin only
 method: GET
 url: '{{base_url}}/api/auth/users/'
 order: 9000
+queryParams:
+  - key: page
+    value: '1'
+    disabled: true
+  - key: page_size
+    value: '20'
+    disabled: true
+  - key: search
+    value: ''
+    disabled: true
+  - key: is_active
+    value: 'true'
+    disabled: true

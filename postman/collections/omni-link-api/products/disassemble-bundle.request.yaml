@@ -12,7 +12,7 @@ headers:
     value: application/json
 body:
   type: json
-  content: -
+  content: |-
     {
       "warehouse": "{{warehouse_id}}",
       "quantity": 2

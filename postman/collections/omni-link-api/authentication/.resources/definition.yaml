@@ -1,4 +1,4 @@
 $kind: collection
 name: Authentication
-description: User registration, login (email/password and Google OAuth), token management, profile, and admin user management
-order: 1
+description: User authentication and account management endpoints including registration, login, logout, and profile management
+order: 1000

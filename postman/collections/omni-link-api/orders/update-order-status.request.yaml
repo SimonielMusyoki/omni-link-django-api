@@ -1,0 +1,15 @@
+$kind: http-request
+name: Update Order Status
+method: POST
+url: '{{base_url}}/api/orders/{{order_id}}/status/'
+order: 7000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "status": "processing",
+      "notes": "Order is being processed"
+    }

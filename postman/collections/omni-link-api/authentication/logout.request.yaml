@@ -10,5 +10,13 @@ body:
   type: json
   content: |-
     {
-      "refresh_token": "{{refresh_token}}"
+      "refresh": "{{refresh_token}}"
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 200 || pm.response.code === 204) {
+          pm.collectionVariables.set("access_token", "");
+          pm.collectionVariables.set("refresh_token", "");
+      }

@@ -1,17 +1,19 @@
 $kind: http-request
 name: Update Kit Item
 method: PUT
-url: '{{base_url}}/api/kit-items/{{kit_item_id}}/'
+url: '{{base_url}}/api/kit-items/:id/'
 order: 4000
+pathVariables:
+  - key: id
+    value: '{{kit_item_id}}'
 headers:
   - key: Content-Type
     value: application/json
 body:
   type: json
-  content: -
+  content: |-
     {
-      "bundle": "{{product_id}}",
-      "component": 2,
-      "quantity": 5
+      "kit_product": "{{product_id}}",
+      "component_product": "{{component_product_id}}",
+      "quantity": 3
     }
-

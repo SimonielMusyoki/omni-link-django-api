@@ -1,6 +1,4 @@
 $kind: collection
 name: Shipments
-description: >-
-  CRUD for shipments with status workflow actions: mark_in_transit,
-  mark_delivered, mark_returned, mark_failed.
-order: 9
+description: Shipment management and tracking
+order: 11000

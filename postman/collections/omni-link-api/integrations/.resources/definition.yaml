@@ -1,6 +1,4 @@
 $kind: collection
 name: Integrations
-description: >-
-  CRUD for third-party integrations (Shopify, Amazon, eBay, Custom).
-  Each integration is linked to a warehouse. Supports sync action.
-order: 11
+description: Third-party integration management
+order: 9000

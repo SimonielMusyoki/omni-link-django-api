@@ -1,0 +1,19 @@
+$kind: http-request
+name: Update Product Request
+method: PUT
+url: '{{base_url}}/api/product-requests/{{product_request_id}}/'
+order: 4000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "product": "{{product_id}}",
+      "warehouse": "{{warehouse_id}}",
+      "quantity_requested": 150,
+      "priority": "urgent",
+      "reason": "Updated - Critical stock shortage",
+      "notes": "Increased quantity due to higher demand"
+    }

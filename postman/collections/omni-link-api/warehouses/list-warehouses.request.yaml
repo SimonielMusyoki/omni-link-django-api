@@ -4,9 +4,15 @@ method: GET
 url: '{{base_url}}/api/warehouses/'
 order: 1000
 queryParams:
+  - key: page
+    value: '1'
+    disabled: true
+  - key: page_size
+    value: '20'
+    disabled: true
   - key: search
     value: ''
     disabled: true
-  - key: ordering
-    value: ''
+  - key: is_active
+    value: 'true'
     disabled: true

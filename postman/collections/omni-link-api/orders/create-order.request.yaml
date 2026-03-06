@@ -10,18 +10,45 @@ body:
   type: json
   content: |-
     {
-      "order_number": "ORD-001",
       "customer_name": "John Doe",
       "customer_email": "john.doe@example.com",
-      "status": "PENDING",
-      "total_amount": "59.98",
-      "warehouse": "{{warehouse_id}}",
+      "customer_phone": "+1234567890",
+      "shipping_address": {
+        "street": "123 Main St",
+        "city": "New York",
+        "state": "NY",
+        "postal_code": "10001",
+        "country": "US"
+      },
+      "billing_address": {
+        "street": "123 Main St",
+        "city": "New York",
+        "state": "NY",
+        "postal_code": "10001",
+        "country": "US"
+      },
       "items": [
         {
           "product": "{{product_id}}",
           "quantity": 2,
-          "unit_price": "29.99",
-          "total_price": "59.98"
+          "unit_price": "29.99"
         }
-      ]
+      ],
+      "notes": "Please handle with care",
+      "warehouse": "{{warehouse_id}}"
     }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      if (pm.response.code === 201) {
+        const response = pm.response.json();
+        if (response.id) {
+          pm.collectionVariables.set("order_id", response.id);
+          console.log("Order ID saved:", response.id);
+        }
+        if (response.order_number) {
+          pm.collectionVariables.set("order_number", response.order_number);
+          console.log("Order Number saved:", response.order_number);
+        }
+      }

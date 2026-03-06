@@ -1,5 +1,5 @@
 $kind: http-request
-name: Get Transfer
+name: Get Product Transfer
 method: GET
-url: '{{base_url}}/api/transfers/{{transfer_id}}/'
+url: '{{base_url}}/api/product-transfers/{{transfer_id}}/'
 order: 3000

@@ -10,17 +10,17 @@ body:
   type: json
   content: |-
     {
-      "tracking_number": "TRACK123456789-UPD",
       "order": "{{order_id}}",
-      "warehouse": "{{warehouse_id}}",
-      "recipient_name": "John Doe Updated",
-      "recipient_email": "john.updated@example.com",
-      "shipping_address": "456 New St",
-      "shipping_city": "Mombasa",
-      "shipping_state": "Coast",
-      "shipping_zip": "80100",
-      "shipping_country": "Kenya",
-      "carrier": "DHL",
-      "estimated_delivery": "2026-04-20T00:00:00Z",
-      "weight": "3.00"
+      "carrier": "ups",
+      "service_type": "express",
+      "tracking_number": "1Z999AA10123456784",
+      "weight": "2.5",
+      "dimensions": {
+        "length": "12",
+        "width": "8",
+        "height": "6"
+      },
+      "shipping_cost": "25.99",
+      "estimated_delivery": "2024-12-18",
+      "notes": "Updated shipment details"
     }
