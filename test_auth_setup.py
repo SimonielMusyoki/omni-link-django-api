@@ -6,6 +6,7 @@ Run this after migrations to test basic functionality
 
 import os
 import django
+import pytest
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'api.settings')
 django.setup()
@@ -15,6 +16,7 @@ from authentication.models import UserRole
 
 User = get_user_model()
 
+@pytest.mark.django_db
 def test_setup():
     """Test basic authentication setup"""
     print("🧪 Testing Authentication Setup\n")
@@ -101,4 +103,3 @@ if __name__ == "__main__":
         print(f"\n❌ Test failed with error: {e}")
         import traceback
         traceback.print_exc()
-

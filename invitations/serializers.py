@@ -17,6 +17,6 @@ class InvitationSerializer(serializers.ModelSerializer):
             'status', 'token', 'expires_at', 'created_at', 'updated_at', 'accepted_at'
         ]
         read_only_fields = [
-            'id', 'token', 'created_at', 'updated_at', 'accepted_at', 'invited_by'
+            'id', 'token', 'expires_at', 'status', 'created_at', 'updated_at',
+            'accepted_at', 'invited_by'
         ]
-
