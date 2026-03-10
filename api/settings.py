@@ -28,7 +28,7 @@ SECRET_KEY = 'django-insecure-j03atacl2d&fp8fqbaqka-xgta!xqrd%)0ju84nsq+3%_s4d0p
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = []  # Override in local_settings.py for development
 
 
 # Application definition
@@ -168,8 +168,8 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
+    'DEFAULT_PAGINATION_CLASS': 'api.pagination.StandardResultsSetPagination',
+    'PAGE_SIZE': 10,
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
@@ -179,7 +179,7 @@ REST_FRAMEWORK = {
 
 # JWT Configuration
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
@@ -201,13 +201,8 @@ SIMPLE_JWT = {
 }
 
 # CORS Configuration
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:8000",
-]
-
+# Default to empty/restrictive for production. Local development settings in local_settings.py
+CORS_ALLOWED_ORIGINS = []
 CORS_ALLOW_CREDENTIALS = True
 
 # Google OAuth Configuration
@@ -225,6 +220,9 @@ ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_AUTHENTICATION_METHOD = 'email'
 
+# Shopify webhook verification secret (from Shopify app settings)
+SHOPIFY_WEBHOOK_SECRET = config('SHOPIFY_WEBHOOK_SECRET', default='')
+
 # Spectacular (OpenAPI) Configuration
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Omni Link API',
@@ -233,4 +231,23 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
 }
 
+# Email defaults
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@omnilink.local')
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
 
+# Celery configuration
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=CELERY_BROKER_URL)
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=True, cast=bool)
+CELERY_TASK_EAGER_PROPAGATES = True
+
+# Import local settings if they exist (for development overrides)
+# This must be at the end so it can override any of the above settings
+try:
+    from .local_settings import *  # noqa: F401, F403
+except ImportError:
+    pass

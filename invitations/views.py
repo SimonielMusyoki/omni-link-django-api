@@ -25,8 +25,10 @@ class InvitationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Return invitations sent or received by current user"""
         user = self.request.user
-        return Invitation.objects.filter(
-            models.Q(invited_by=user) | models.Q(invited_user=user)
+        return (
+            Invitation.objects
+            .filter(models.Q(invited_by=user) | models.Q(invited_user=user))
+            .select_related('warehouse', 'invited_by', 'invited_user')
         )
 
     def perform_create(self, serializer):
@@ -124,4 +126,3 @@ class InvitationViewSet(viewsets.ModelViewSet):
                 {'error': 'Invalid token'},
                 status=status.HTTP_404_NOT_FOUND
             )
-

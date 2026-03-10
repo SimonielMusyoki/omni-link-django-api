@@ -1,25 +1,42 @@
 from rest_framework import serializers
-from .models import Shipment
+from .models import Shipment, ShipmentItem
+
+
+class ShipmentItemSerializer(serializers.ModelSerializer):
+    """Serializer for ShipmentItem model"""
+
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    product_sku = serializers.CharField(source='product.sku', read_only=True)
+
+    class Meta:
+        model = ShipmentItem
+        fields = ['id', 'product', 'product_name', 'product_sku', 'quantity']
+        read_only_fields = ['id']
 
 
 class ShipmentSerializer(serializers.ModelSerializer):
     """Serializer for Shipment model"""
 
-    order_number = serializers.CharField(source='order.order_number', read_only=True)
-    warehouse_name = serializers.CharField(source='warehouse.name', read_only=True)
-    owner_email = serializers.CharField(source='owner.email', read_only=True)
+    origin_name = serializers.CharField(source='origin.name', read_only=True)
+    origin_location = serializers.CharField(source='origin.location', read_only=True)
+    destination_name = serializers.CharField(source='destination.name', read_only=True)
+    destination_location = serializers.CharField(source='destination.location', read_only=True)
+    created_by_email = serializers.CharField(source='created_by.email', read_only=True)
+    items = ShipmentItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = Shipment
         fields = [
-            'id', 'tracking_number', 'order', 'order_number',
-            'warehouse', 'warehouse_name', 'status',
-            'recipient_name', 'recipient_email', 'shipping_address',
-            'shipping_city', 'shipping_state', 'shipping_zip', 'shipping_country',
-            'carrier', 'estimated_delivery', 'actual_delivery', 'weight',
-            'owner', 'owner_email', 'created_at', 'updated_at'
+            'id', 'tracking_number', 'origin', 'origin_name', 'origin_location',
+            'destination', 'destination_name', 'destination_location',
+            'status', 'carrier', 'estimated_delivery', 'actual_delivery',
+            'weight', 'notes', 'created_by', 'created_by_email',
+            'items', 'created_at', 'updated_at'
         ]
         read_only_fields = [
-            'id', 'created_at', 'updated_at', 'actual_delivery', 'owner'
+            'id', 'tracking_number', 'created_at', 'updated_at',
+            'actual_delivery', 'created_by'
         ]
+
+
 

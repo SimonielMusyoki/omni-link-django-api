@@ -8,8 +8,16 @@ from .models import (
     ProductBundle,
     Inventory,
     InventoryTransfer,
-    Integration,
+    Market,
 )
+
+
+@admin.register(Market)
+class MarketAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'currency', 'is_active', 'created_at')
+    list_filter = ('is_active', 'currency')
+    search_fields = ('name', 'code')
+    ordering = ('name',)
 
 
 @admin.register(Category)
@@ -85,10 +93,3 @@ class InventoryTransferAdmin(admin.ModelAdmin):
     list_filter = ('status',)
     search_fields = ('product__name',)
     readonly_fields = ('created_at', 'updated_at', 'completed_at')
-
-
-@admin.register(Integration)
-class IntegrationAdmin(admin.ModelAdmin):
-    list_display = ('name', 'type', 'status', 'warehouse', 'last_sync')
-    list_filter = ('type', 'status')
-    search_fields = ('name',)

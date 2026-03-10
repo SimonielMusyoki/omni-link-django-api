@@ -24,6 +24,8 @@ def add_stock(*, product, warehouse, quantity: int, user=None) -> Inventory:
     """
     if quantity <= 0:
         raise ValidationError({'quantity': 'Must be a positive integer.'})
+    if not product.is_physical:
+        raise ValidationError({'detail': 'Virtual products do not track inventory.'})
 
     with transaction.atomic():
         inv, _created = Inventory.objects.select_for_update().get_or_create(
@@ -45,6 +47,8 @@ def remove_stock(*, product, warehouse, quantity: int, user=None) -> Inventory:
     """
     if quantity <= 0:
         raise ValidationError({'quantity': 'Must be a positive integer.'})
+    if not product.is_physical:
+        raise ValidationError({'detail': 'Virtual products do not track inventory.'})
 
     with transaction.atomic():
         try:
@@ -92,6 +96,8 @@ def transfer_stock(
     """
     if quantity <= 0:
         raise ValidationError({'quantity': 'Must be a positive integer.'})
+    if not product.is_physical:
+        raise ValidationError({'detail': 'Virtual products do not track inventory.'})
 
     if from_warehouse.pk == to_warehouse.pk:
         raise ValidationError(
@@ -168,6 +174,8 @@ def assemble_bundle(*, bundle, warehouse, quantity: int, user=None) -> Inventory
 
     if not bundle.is_bundle:
         raise ValidationError({'detail': 'Product is not a bundle.'})
+    if not bundle.is_physical:
+        raise ValidationError({'detail': 'Virtual products do not track inventory.'})
 
     components = list(ProductBundle.objects.filter(bundle=bundle).select_related('component'))
     if not components:
@@ -234,6 +242,8 @@ def disassemble_bundle(*, bundle, warehouse, quantity: int, user=None) -> list:
 
     if not bundle.is_bundle:
         raise ValidationError({'detail': 'Product is not a bundle.'})
+    if not bundle.is_physical:
+        raise ValidationError({'detail': 'Virtual products do not track inventory.'})
 
     components = list(ProductBundle.objects.filter(bundle=bundle).select_related('component'))
     if not components:
@@ -277,5 +287,4 @@ def disassemble_bundle(*, bundle, warehouse, quantity: int, user=None) -> list:
             result.append(comp_inv)
 
     return result
-
 

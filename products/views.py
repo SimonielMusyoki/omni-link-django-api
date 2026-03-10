@@ -11,7 +11,8 @@ Design notes
   which wraps everything in atomic + select_for_update.
 """
 
-from django.db.models import Sum, Count, F, Q
+from django.db.models import Sum, Count, F, Value
+from django.db.models.functions import Coalesce
 from rest_framework import viewsets, status, filters, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -25,7 +26,7 @@ from .models import (
     ProductBundle,
     Inventory,
     InventoryTransfer,
-    Integration,
+    Market,
 )
 from .serializers import (
     CategorySerializer,
@@ -36,12 +37,27 @@ from .serializers import (
     DisassembleBundleSerializer,
     InventorySerializer,
     InventoryTransferSerializer,
-    IntegrationSerializer,
     AddStockSerializer,
     RemoveStockSerializer,
     InventorySummarySerializer,
+    MarketSerializer,
 )
 from . import services
+
+
+# ---------------------------------------------------------------------------
+# Market
+# ---------------------------------------------------------------------------
+class MarketViewSet(viewsets.ModelViewSet):
+    """CRUD for markets."""
+    queryset = Market.objects.all()
+    serializer_class = MarketSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['is_active']
+    search_fields = ['name', 'code']
+    ordering_fields = ['name', 'code', 'created_at']
+    ordering = ['name']
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +87,11 @@ class WarehouseViewSet(viewsets.ModelViewSet):
     • POST /warehouses/{id}/remove_stock/ → remove stock
     """
 
-    queryset = Warehouse.objects.all()
+    queryset = (
+        Warehouse.objects
+        .select_related('manager')
+        .annotate(annotated_total_stock=Coalesce(Sum('inventory_items__quantity'), Value(0)))
+    )
     serializer_class = WarehouseSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -194,7 +214,12 @@ class ProductViewSet(viewsets.ModelViewSet):
     • POST /products/{id}/disassemble/ → break bundle back into components
     """
 
-    queryset = Product.objects.select_related('category').prefetch_related('bundle_items__component').all()
+    queryset = (
+        Product.objects
+        .select_related('category')
+        .prefetch_related('bundle_items__component')
+        .annotate(annotated_total_stock=Coalesce(Sum('inventory_items__quantity'), Value(0)))
+    )
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -207,6 +232,12 @@ class ProductViewSet(viewsets.ModelViewSet):
     def inventory(self, request, pk=None):
         """Show this product's stock in every warehouse."""
         product = self.get_object()
+        if not product.is_physical:
+            page = self.paginate_queryset([])
+            if page is not None:
+                return self.get_paginated_response([])
+            return Response([])
+
         qs = (
             Inventory.objects
             .filter(product=product)
@@ -296,10 +327,11 @@ class BundleItemViewSet(viewsets.ModelViewSet):
 class InventoryViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     """
-    Read-only view over all Inventory rows.
+    Read/update view over all Inventory rows.
 
     Supports filtering by ?product=<id> or ?warehouse=<id>.
 
@@ -431,29 +463,3 @@ class InventoryTransferViewSet(
 
         out = InventoryTransferSerializer(transfer)
         return Response(out.data, status=status.HTTP_201_CREATED)
-
-
-# ---------------------------------------------------------------------------
-# Integration
-# ---------------------------------------------------------------------------
-class IntegrationViewSet(viewsets.ModelViewSet):
-    """CRUD for third-party integrations."""
-
-    queryset = Integration.objects.select_related('warehouse').all()
-    serializer_class = IntegrationSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['warehouse', 'type', 'status']
-    search_fields = ['name']
-
-    @action(detail=True, methods=['post'])
-    def sync(self, request, pk=None):
-        integration = self.get_object()
-        from django.utils import timezone
-        integration.last_sync = timezone.now()
-        integration.save(update_fields=['last_sync', 'updated_at'])
-        return Response({
-            'status': 'Sync initiated',
-            'integration_id': integration.id,
-            'last_sync': integration.last_sync,
-        })

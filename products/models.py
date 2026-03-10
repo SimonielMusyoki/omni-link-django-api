@@ -19,6 +19,48 @@ User = get_user_model()
 
 
 # ---------------------------------------------------------------------------
+# Market
+# ---------------------------------------------------------------------------
+class Market(models.Model):
+    """Market/Country configuration for multi-region operations"""
+
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        db_index=True,
+        help_text='Market/Country name (e.g., Kenya, Nigeria, Ghana)'
+    )
+    code = models.CharField(
+        max_length=10,
+        unique=True,
+        db_index=True,
+        help_text='Market code (e.g., KE, NG, GH)'
+    )
+    currency = models.CharField(
+        max_length=3,
+        default='USD',
+        help_text='Default currency code (e.g., KES, NGN, GHS)'
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Whether this market is currently active'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        indexes = [
+            models.Index(fields=['name']),
+            models.Index(fields=['code']),
+            models.Index(fields=['is_active', 'name']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
+# ---------------------------------------------------------------------------
 # Category
 # ---------------------------------------------------------------------------
 class Category(models.Model):
@@ -112,6 +154,10 @@ class Product(models.Model):
         default=False,
         help_text='True if this product is a bundle composed of other products.',
     )
+    is_physical = models.BooleanField(
+        default=True,
+        help_text='Physical products track warehouse inventory; virtual products do not.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -127,7 +173,9 @@ class Product(models.Model):
 
     @property
     def total_stock(self):
-        """Sum of quantity across every warehouse."""
+        """Sum of quantity across every warehouse for physical products."""
+        if not self.is_physical:
+            return 0
         return (
             self.inventory_items.aggregate(total=models.Sum('quantity'))['total']
             or 0
@@ -135,6 +183,8 @@ class Product(models.Model):
 
     @property
     def needs_reorder(self):
+        if not self.is_physical:
+            return False
         return self.total_stock <= self.reorder_level
 
 
@@ -318,44 +368,5 @@ class InventoryTransfer(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# Integration (kept for backwards-compat with integrations app)
+# Integration has moved to integrations/models.py
 # ---------------------------------------------------------------------------
-class Integration(models.Model):
-    """Third-party integration credentials for a warehouse."""
-
-    class IntStatus(models.TextChoices):
-        ACTIVE = 'ACTIVE', 'Active'
-        INACTIVE = 'INACTIVE', 'Inactive'
-
-    class IntType(models.TextChoices):
-        SHOPIFY = 'SHOPIFY', 'Shopify'
-        AMAZON = 'AMAZON', 'Amazon'
-        EBAY = 'EBAY', 'eBay'
-        CUSTOM = 'CUSTOM', 'Custom'
-
-    name = models.CharField(max_length=255)
-    type = models.CharField(max_length=50, choices=IntType.choices)
-    status = models.CharField(
-        max_length=20, choices=IntStatus.choices, default=IntStatus.ACTIVE
-    )
-    api_key = models.CharField(max_length=500, blank=True)
-    api_secret = models.CharField(max_length=500, blank=True)
-    webhook_url = models.URLField(blank=True)
-    warehouse = models.ForeignKey(
-        Warehouse, on_delete=models.CASCADE, related_name='integrations'
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    last_sync = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ['-created_at']
-        constraints = [
-            models.UniqueConstraint(
-                fields=['warehouse', 'type'],
-                name='unique_integration_per_warehouse',
-            ),
-        ]
-
-    def __str__(self):
-        return f'{self.name} ({self.type})'

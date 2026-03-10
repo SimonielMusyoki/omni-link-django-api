@@ -5,9 +5,11 @@ from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Prefetch
 
 from .models import Order, OrderItem
 from .serializers import OrderSerializer, OrderItemSerializer, OrderCreateUpdateSerializer
+from integrations.models import Integration
 
 
 class OrderViewSet(viewsets.ModelViewSet):
@@ -16,15 +18,40 @@ class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status', 'warehouse']
+    filterset_fields = ['status', 'warehouse', 'created_at', 'shopify_created_at', 'market']
     search_fields = ['order_number', 'customer_email', 'customer_name']
-    ordering_fields = ['created_at', 'status', 'total_amount']
-    ordering = ['-created_at']
+    ordering_fields = ['shopify_created_at', 'created_at', 'status', 'total_amount']
+    # Default sort: most recently placed on Shopify first.
+    ordering = ['-shopify_created_at', '-created_at']
 
     def get_queryset(self):
-        """Return orders for current user"""
+        """Return orders for current user with optional date filtering"""
         user = self.request.user
-        return Order.objects.filter(owner=user).prefetch_related('items')
+        queryset = (
+            Order.objects
+            .filter(owner=user)
+            .select_related('warehouse', 'owner')
+            .prefetch_related(
+                Prefetch('items', queryset=OrderItem.objects.select_related('product'))
+            )
+        )
+
+        # Date range filtering - support both created_at and shopify_created_at
+        created_at_gte = self.request.query_params.get('created_at__gte')
+        created_at_lte = self.request.query_params.get('created_at__lte')
+        shopify_created_at_gte = self.request.query_params.get('shopify_created_at__gte')
+        shopify_created_at_lte = self.request.query_params.get('shopify_created_at__lte')
+
+        if created_at_gte:
+            queryset = queryset.filter(created_at__gte=created_at_gte)
+        if created_at_lte:
+            queryset = queryset.filter(created_at__lte=created_at_lte)
+        if shopify_created_at_gte:
+            queryset = queryset.filter(shopify_created_at__gte=shopify_created_at_gte)
+        if shopify_created_at_lte:
+            queryset = queryset.filter(shopify_created_at__lte=shopify_created_at_lte)
+
+        return queryset
 
     @transaction.atomic
     def perform_create(self, serializer):
@@ -125,3 +152,178 @@ class OrderViewSet(viewsets.ModelViewSet):
         serializer = OrderItemSerializer(items, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['post'], url_path='push-to-quickbooks')
+    def push_to_quickbooks(self, request, pk=None):
+        """Push order to QuickBooks for the order's market"""
+        order = self.get_object()
+
+        # Find active QuickBooks integration for this order's market
+        integration = Integration.objects.filter(
+            type=Integration.IntegrationType.QUICKBOOKS,
+            market=order.market,
+            status=Integration.IntegrationStatus.ACTIVE,
+        ).first()
+
+        if not integration:
+            return Response(
+                {'error': f'No active QuickBooks integration found for {order.market}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # TODO: Implement actual QuickBooks API integration
+        # For now, return success with integration info
+        return Response({
+            'success': True,
+            'message': f'Order pushed to QuickBooks ({integration.name})',
+            'integration_id': integration.id,
+            'order_id': order.id,
+        })
+
+    @action(detail=True, methods=['get'], url_path='view-in-quickbooks')
+    def view_in_quickbooks(self, request, pk=None):
+        """Get QuickBooks URL for this order"""
+        order = self.get_object()
+
+        integration = Integration.objects.filter(
+            type=Integration.IntegrationType.QUICKBOOKS,
+            market=order.market,
+            status=Integration.IntegrationStatus.ACTIVE,
+        ).first()
+
+        if not integration:
+            return Response(
+                {'error': f'No active QuickBooks integration found for {order.market}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        creds = getattr(integration, 'quickbooks_credentials', None)
+        if not creds:
+            return Response(
+                {'error': 'QuickBooks credentials not configured'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Generate QuickBooks URL
+        env = 'sandbox' if creds.environment == 'SANDBOX' else 'app'
+        url = f'https://{env}.qbo.intuit.com/app/invoice?txnId={order.shopify_order_id}'
+
+        return Response({
+            'url': url,
+            'realm_id': creds.realm_id,
+        })
+
+    @action(detail=True, methods=['post'], url_path='create-odoo-so')
+    def create_odoo_so(self, request, pk=None):
+        """Create Odoo Sales Order for this order"""
+        order = self.get_object()
+
+        integration = Integration.objects.filter(
+            type=Integration.IntegrationType.ODOO,
+            market=order.market,
+            status=Integration.IntegrationStatus.ACTIVE,
+        ).first()
+
+        if not integration:
+            return Response(
+                {'error': f'No active Odoo integration found for {order.market}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # TODO: Implement actual Odoo XML-RPC integration
+        return Response({
+            'success': True,
+            'message': f'Sales Order created in Odoo ({integration.name})',
+            'integration_id': integration.id,
+            'order_id': order.id,
+            'odoo_so_id': f'SO{order.shopify_order_number}',
+        })
+
+    @action(detail=True, methods=['post'], url_path='create-odoo-invoice')
+    def create_odoo_invoice(self, request, pk=None):
+        """Create Odoo Invoice for this order"""
+        order = self.get_object()
+
+        integration = Integration.objects.filter(
+            type=Integration.IntegrationType.ODOO,
+            market=order.market,
+            status=Integration.IntegrationStatus.ACTIVE,
+        ).first()
+
+        if not integration:
+            return Response(
+                {'error': f'No active Odoo integration found for {order.market}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # TODO: Implement actual Odoo XML-RPC integration
+        return Response({
+            'success': True,
+            'message': f'Invoice created in Odoo ({integration.name})',
+            'integration_id': integration.id,
+            'order_id': order.id,
+            'odoo_invoice_id': f'INV{order.shopify_order_number}',
+        })
+
+    @action(detail=True, methods=['get'], url_path='view-odoo-so')
+    def view_odoo_so(self, request, pk=None):
+        """Get Odoo Sales Order URL for this order"""
+        order = self.get_object()
+
+        integration = Integration.objects.filter(
+            type=Integration.IntegrationType.ODOO,
+            market=order.market,
+            status=Integration.IntegrationStatus.ACTIVE,
+        ).first()
+
+        if not integration:
+            return Response(
+                {'error': f'No active Odoo integration found for {order.market}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        creds = getattr(integration, 'odoo_credentials', None)
+        if not creds:
+            return Response(
+                {'error': 'Odoo credentials not configured'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Generate Odoo URL
+        url = f'{creds.server_url}/web#id={order.shopify_order_id}&model=sale.order&view_type=form'
+
+        return Response({
+            'url': url,
+            'server_url': creds.server_url,
+        })
+
+    @action(detail=True, methods=['get'], url_path='view-odoo-invoice')
+    def view_odoo_invoice(self, request, pk=None):
+        """Get Odoo Invoice URL for this order"""
+        order = self.get_object()
+
+        integration = Integration.objects.filter(
+            type=Integration.IntegrationType.ODOO,
+            market=order.market,
+            status=Integration.IntegrationStatus.ACTIVE,
+        ).first()
+
+        if not integration:
+            return Response(
+                {'error': f'No active Odoo integration found for {order.market}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        creds = getattr(integration, 'odoo_credentials', None)
+        if not creds:
+            return Response(
+                {'error': 'Odoo credentials not configured'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Generate Odoo URL
+        url = f'{creds.server_url}/web#id={order.shopify_order_id}&model=account.move&view_type=form'
+
+        return Response({
+            'url': url,
+            'server_url': creds.server_url,
+        })

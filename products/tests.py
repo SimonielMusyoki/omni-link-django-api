@@ -509,7 +509,7 @@ class ProductAPITest(APITestCase, _SetupMixin):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# API TESTS – INVENTORY (read-only)
+# API TESTS – INVENTORY (list/retrieve/update)
 # ═══════════════════════════════════════════════════════════════════════════
 class InventoryAPITest(APITestCase, _SetupMixin):
     def setUp(self):
@@ -550,8 +550,37 @@ class InventoryAPITest(APITestCase, _SetupMixin):
         self.assertEqual(row['warehouse_count'], 2)
         self.assertFalse(row['needs_reorder'])
 
+    def test_patch_quantity_and_reserved(self):
+        inv = Inventory.objects.get(
+            product=self.product,
+            warehouse=self.warehouse_a,
+        )
+        r = self.client.patch(
+            f'/api/inventory/{inv.pk}/',
+            {'quantity': 120, 'reserved': 20},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        inv.refresh_from_db()
+        self.assertEqual(inv.quantity, 120)
+        self.assertEqual(inv.reserved, 20)
+
+    def test_patch_warehouse(self):
+        inv = Inventory.objects.get(
+            product=self.product,
+            warehouse=self.warehouse_a,
+        )
+        r = self.client.patch(
+            f'/api/inventory/{inv.pk}/',
+            {'warehouse': self.warehouse_b.pk},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        inv.refresh_from_db()
+        self.assertEqual(inv.warehouse_id, self.warehouse_b.pk)
+
     def test_cannot_create_via_api(self):
-        """Inventory is read-only through the InventoryViewSet."""
+        """Inventory creation is still not exposed on the InventoryViewSet."""
         r = self.client.post('/api/inventory/', {
             'product': self.product.pk,
             'warehouse': self.warehouse_a.pk,

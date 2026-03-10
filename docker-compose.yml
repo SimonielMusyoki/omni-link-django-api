@@ -33,11 +33,10 @@ services:
       - DB_HOST=db
       - DB_PORT=5432
       - DEBUG=True
+      - PSYCOPG_IMPL=binary
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   postgres_data:
-
-

@@ -7,8 +7,32 @@ from .models import (
     ProductBundle,
     Inventory,
     InventoryTransfer,
-    Integration,
+    Market,
 )
+
+
+# ---------------------------------------------------------------------------
+# Market
+# ---------------------------------------------------------------------------
+class MarketSerializer(serializers.ModelSerializer):
+    """Serializer for Market model"""
+
+    class Meta:
+        model = Market
+        fields = [
+            'id',
+            'name',
+            'code',
+            'currency',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_code(self, value):
+        """Ensure code is uppercase"""
+        return value.upper()
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +50,7 @@ class CategorySerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 class WarehouseSerializer(serializers.ModelSerializer):
     manager_email = serializers.CharField(source='manager.email', read_only=True)
-    total_stock = serializers.IntegerField(read_only=True)
+    total_stock = serializers.SerializerMethodField()
 
     class Meta:
         model = Warehouse
@@ -36,6 +60,12 @@ class WarehouseSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'manager']
+
+    def get_total_stock(self, obj):
+        annotated = getattr(obj, 'annotated_total_stock', None)
+        if annotated is not None:
+            return int(annotated)
+        return obj.total_stock
 
 
 # ---------------------------------------------------------------------------
@@ -78,19 +108,46 @@ class BundleItemWriteSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
-    total_stock = serializers.IntegerField(read_only=True)
-    needs_reorder = serializers.BooleanField(read_only=True)
+    total_stock = serializers.SerializerMethodField()
+    needs_reorder = serializers.SerializerMethodField()
     bundle_items = BundleItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = Product
         fields = [
             'id', 'name', 'description', 'sku', 'category', 'category_name',
-            'price', 'reorder_level', 'image_url', 'is_bundle', 'bundle_items',
+            'price', 'reorder_level', 'image_url', 'is_bundle', 'is_physical', 'bundle_items',
             'total_stock', 'needs_reorder',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_total_stock(self, obj):
+        annotated = getattr(obj, 'annotated_total_stock', None)
+        if annotated is not None:
+            return int(annotated)
+        return obj.total_stock
+
+    def get_needs_reorder(self, obj):
+        if not obj.is_physical:
+            return False
+
+        annotated = getattr(obj, 'annotated_total_stock', None)
+        if annotated is not None:
+            return int(annotated) <= obj.reorder_level
+
+        return obj.needs_reorder
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        is_physical = attrs.get('is_physical')
+        if is_physical is None and self.instance is not None:
+            is_physical = self.instance.is_physical
+
+        if is_physical is False:
+            attrs['reorder_level'] = 0
+
+        return attrs
 
 
 class AssembleBundleSerializer(serializers.Serializer):
@@ -170,26 +227,6 @@ class InventoryTransferSerializer(serializers.ModelSerializer):
 
 
 # ---------------------------------------------------------------------------
-# Integration
-# ---------------------------------------------------------------------------
-class IntegrationSerializer(serializers.ModelSerializer):
-    warehouse_name = serializers.CharField(source='warehouse.name', read_only=True)
-
-    class Meta:
-        model = Integration
-        fields = [
-            'id', 'name', 'type', 'status', 'api_key', 'api_secret',
-            'webhook_url', 'warehouse', 'warehouse_name',
-            'created_at', 'updated_at', 'last_sync',
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-        extra_kwargs = {
-            'api_key': {'write_only': True},
-            'api_secret': {'write_only': True},
-        }
-
-
-# ---------------------------------------------------------------------------
 # Summary / report serializers (read-only)
 # ---------------------------------------------------------------------------
 class InventorySummarySerializer(serializers.Serializer):
@@ -201,4 +238,3 @@ class InventorySummarySerializer(serializers.Serializer):
     total_reserved = serializers.IntegerField()
     warehouse_count = serializers.IntegerField()
     needs_reorder = serializers.BooleanField()
-

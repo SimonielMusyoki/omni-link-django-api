@@ -1,5 +1,3 @@
-*.MD
-FINAL_SUMMARY.txt
 # Python
 __pycache__/
 *.py[cod]
