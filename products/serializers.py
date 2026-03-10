@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import serializers
 
 from .models import (
@@ -84,6 +85,15 @@ class BundleItemSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id']
 
+    def to_internal_value(self, data):
+        if hasattr(data, 'get') and data.get('kit') is not None and data.get('bundle') is None:
+            mapped = data.copy() if hasattr(data, 'copy') else dict(data)
+            mapped['bundle'] = mapped.get('kit')
+            if hasattr(mapped, 'pop'):
+                mapped.pop('kit', None)
+            data = mapped
+        return super().to_internal_value(data)
+
     def validate(self, attrs):
         bundle = attrs.get('bundle') or getattr(self.instance, 'bundle', None)
         component = attrs.get('component') or getattr(self.instance, 'component', None)
@@ -111,12 +121,15 @@ class ProductSerializer(serializers.ModelSerializer):
     total_stock = serializers.SerializerMethodField()
     needs_reorder = serializers.SerializerMethodField()
     bundle_items = BundleItemSerializer(many=True, read_only=True)
+    is_kit = serializers.BooleanField(source='is_bundle', required=False)
+    kit_items = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = [
             'id', 'name', 'description', 'sku', 'category', 'category_name',
-            'price', 'reorder_level', 'image_url', 'is_bundle', 'is_physical', 'bundle_items',
+            'price', 'reorder_level', 'image_url', 'is_bundle', 'is_kit', 'is_physical',
+            'bundle_items', 'kit_items',
             'total_stock', 'needs_reorder',
             'created_at', 'updated_at',
         ]
@@ -149,6 +162,9 @@ class ProductSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def get_kit_items(self, obj):
+        return BundleItemSerializer(obj.bundle_items.all(), many=True).data
+
 
 class AssembleBundleSerializer(serializers.Serializer):
     """Validates input for the assemble-bundle action."""
@@ -180,6 +196,29 @@ class InventorySerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+        validators = []
+
+    def update(self, instance, validated_data):
+        target_warehouse = validated_data.get('warehouse')
+        if target_warehouse and target_warehouse.pk != instance.warehouse_id:
+            with transaction.atomic():
+                conflict = Inventory.objects.select_for_update().filter(
+                    product=instance.product,
+                    warehouse=target_warehouse,
+                ).exclude(pk=instance.pk).first()
+                if conflict:
+                    instance.quantity += conflict.quantity
+                    instance.reserved += conflict.reserved
+                    conflict.delete()
+                instance.warehouse = target_warehouse
+                if 'quantity' in validated_data:
+                    instance.quantity = validated_data['quantity']
+                if 'reserved' in validated_data:
+                    instance.reserved = validated_data['reserved']
+                instance.full_clean()
+                instance.save()
+                return instance
+        return super().update(instance, validated_data)
 
 
 class AddStockSerializer(serializers.Serializer):

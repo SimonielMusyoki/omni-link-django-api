@@ -161,6 +161,12 @@ class Product(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def __init__(self, *args, **kwargs):
+        # Backward compatibility: legacy code/tests still pass is_kit.
+        if 'is_kit' in kwargs and 'is_bundle' not in kwargs:
+            kwargs['is_bundle'] = kwargs.pop('is_kit')
+        super().__init__(*args, **kwargs)
+
     class Meta:
         ordering = ['-created_at']
         indexes = [
@@ -186,6 +192,22 @@ class Product(models.Model):
         if not self.is_physical:
             return False
         return self.total_stock <= self.reorder_level
+
+    @property
+    def is_kit(self):
+        return self.is_bundle
+
+    @is_kit.setter
+    def is_kit(self, value):
+        self.is_bundle = value
+
+    @property
+    def kit_items(self):
+        return self.bundle_items
+
+    @property
+    def used_in_kits(self):
+        return self.used_in_bundles
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +254,48 @@ class ProductBundle(models.Model):
 
     def clean(self):
         if self.bundle_id == self.component_id:
+            raise ValidationError('A bundle cannot contain itself.')
+        if self.component_id and self.component.is_bundle:
+            raise ValidationError('Nested bundles are not supported. Components must be regular products.')
+
+    @property
+    def kit(self):
+        return self.bundle
+
+    @kit.setter
+    def kit(self, value):
+        self.bundle = value
+
+
+class KitItem(models.Model):
+    """Legacy alias over ProductBundle for backward compatibility."""
+
+    kit = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='legacy_kit_items',
+        db_column='bundle_id',
+    )
+    component = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='legacy_used_in_kits',
+    )
+    quantity = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+    )
+
+    class Meta:
+        managed = False
+        db_table = ProductBundle._meta.db_table
+        ordering = ['kit', 'component']
+
+    def __str__(self):
+        return f'{self.kit.name} -> {self.quantity}× {self.component.name}'
+
+    def clean(self):
+        if self.kit_id == self.component_id:
             raise ValidationError('A bundle cannot contain itself.')
         if self.component_id and self.component.is_bundle:
             raise ValidationError('Nested bundles are not supported. Components must be regular products.')

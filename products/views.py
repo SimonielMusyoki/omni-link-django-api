@@ -228,6 +228,17 @@ class ProductViewSet(viewsets.ModelViewSet):
     ordering_fields = ['name', 'price', 'created_at']
     ordering = ['-created_at']
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        is_kit = self.request.query_params.get('is_kit')
+        if is_kit is not None:
+            normalized = is_kit.strip().lower()
+            if normalized in {'1', 'true', 'yes'}:
+                queryset = queryset.filter(is_bundle=True)
+            elif normalized in {'0', 'false', 'no'}:
+                queryset = queryset.filter(is_bundle=False)
+        return queryset
+
     @action(detail=True, methods=['get'])
     def inventory(self, request, pk=None):
         """Show this product's stock in every warehouse."""
@@ -319,6 +330,13 @@ class BundleItemViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['bundle', 'component']
     ordering = ['bundle', 'component']
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        kit = self.request.query_params.get('kit')
+        if kit:
+            queryset = queryset.filter(bundle_id=kit)
+        return queryset
 
 
 # ---------------------------------------------------------------------------

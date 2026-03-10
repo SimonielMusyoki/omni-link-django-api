@@ -228,6 +228,11 @@ def assemble_bundle(*, bundle, warehouse, quantity: int, user=None) -> Inventory
     return bundle_inv
 
 
+def assemble_kit(*, kit, warehouse, quantity: int, user=None) -> Inventory:
+    """Backward-compatible alias for assemble_bundle."""
+    return assemble_bundle(bundle=kit, warehouse=warehouse, quantity=quantity, user=user)
+
+
 def disassemble_bundle(*, bundle, warehouse, quantity: int, user=None) -> list:
     """
     Disassemble *quantity* units of a bundle back into components.
@@ -287,4 +292,9 @@ def disassemble_bundle(*, bundle, warehouse, quantity: int, user=None) -> list:
             result.append(comp_inv)
 
     return result
+
+
+def disassemble_kit(*, kit, warehouse, quantity: int, user=None) -> list:
+    """Backward-compatible alias for disassemble_bundle."""
+    return disassemble_bundle(bundle=kit, warehouse=warehouse, quantity=quantity, user=user)
 
