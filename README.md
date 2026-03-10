@@ -125,7 +125,7 @@ It supports multi-market operations (for example Kenya and Nigeria), product and
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.13+
 - Node.js 20+
 - PostgreSQL
 - (Optional) Docker for local DB/testing convenience

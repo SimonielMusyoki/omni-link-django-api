@@ -1,5 +1,5 @@
 [Unit]
-Description=Gunicorn daemon for Omni Link Django API
+Description=Gunicorn daemon for Omni Link Django API (requires Python 3.13+)
 After=network.target
 
 [Service]
