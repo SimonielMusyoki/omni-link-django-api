@@ -6,11 +6,61 @@ on:
       - main
 
 jobs:
-  deploy:
+  # ────────────────────────────────────────────────────────────────────────────
+  # 1. Run tests before deploying
+  # ────────────────────────────────────────────────────────────────────────────
+  test:
     runs-on: ubuntu-latest
 
-    steps:
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: omnilink_test
+          POSTGRES_USER: omnilink_user
+          POSTGRES_PASSWORD: testpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          DJANGO_SETTINGS_MODULE: api.settings
+          DB_NAME: omnilink_test
+          DB_USER: omnilink_user
+          DB_PASSWORD: testpass
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DJANGO_SECRET_KEY: ci-test-secret-key-not-for-production
+          DJANGO_DEBUG: "False"
+        run: python -m pytest -q --tb=short
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 2. Deploy to EC2 (only if tests pass)
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -19,46 +69,74 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key.pem
           chmod 600 ~/.ssh/ec2_key.pem
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Deploy to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem \
-          ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          ssh -i ~/.ssh/ec2_key.pem \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} 'bash -s' << 'ENDSSH'
 
-          set -e
+          set -euo pipefail
 
-          echo "Navigating to deployment directory"
+          APP_ROOT="/opt/omnilink"
+          PROJECT_DIR="${APP_ROOT}/project"
+          VENV_DIR="${APP_ROOT}/venv"
 
-          cd ${{ secrets.EC2_DEPLOY_PATH }}
+          echo "────────────────────────────────────"
+          echo " Omni Link API — Rolling Deployment"
+          echo "────────────────────────────────────"
 
-          if [ ! -d "project" ]; then
-            echo "Cloning repository"
-            git clone ${{ secrets.EC2_BACKEND_REPO_URL }} project
+          # ── Clone repo on first deploy ──────────────────────────────────────
+          if [ ! -d "${PROJECT_DIR}/.git" ]; then
+            echo "[init] Cloning repository..."
+            git clone ${{ secrets.EC2_BACKEND_REPO_URL }} "${PROJECT_DIR}"
           fi
 
-          cd project
+          # ── Pull latest code ────────────────────────────────────────────────
+          echo "[1/6] Pulling latest code..."
+          git -C "${PROJECT_DIR}" fetch --all
+          git -C "${PROJECT_DIR}" reset --hard origin/main
 
-          echo "Pulling latest code"
-          git pull origin main
+          # ── Copy updated deploy files ───────────────────────────────────────
+          echo "[2/6] Syncing Gunicorn service and Nginx config..."
 
-          echo "Activating virtual environment"
-          source ../venv/bin/activate
+          sudo cp "${PROJECT_DIR}/deploy/systemd/gunicorn.service" \
+                  "/etc/systemd/system/omnilink-gunicorn.service"
+          sudo systemctl daemon-reload
 
-          echo "Installing dependencies"
-          pip install -r ../requirements.txt
+          sudo cp "${PROJECT_DIR}/deploy/nginx/default.conf" \
+                  "/etc/nginx/sites-available/omnilink"
+          sudo ln -sf /etc/nginx/sites-available/omnilink \
+                      /etc/nginx/sites-enabled/omnilink
+          sudo nginx -t
 
-          echo "Running migrations"
-          python manage.py migrate --noinput
+          # ── Install / update Python dependencies ────────────────────────────
+          echo "[3/6] Installing Python dependencies..."
+          "${VENV_DIR}/bin/pip" install --quiet --upgrade pip
+          "${VENV_DIR}/bin/pip" install --quiet -r "${PROJECT_DIR}/requirements.txt"
 
-          echo "Collecting static files"
-          python manage.py collectstatic --noinput
+          # ── Django management commands ──────────────────────────────────────
+          echo "[4/6] Running migrations..."
+          cd "${PROJECT_DIR}"
+          source "${APP_ROOT}/.env.prod"
+          export $(grep -v '^#' "${APP_ROOT}/.env.prod" | xargs)
 
-          echo "Restarting Gunicorn"
-          sudo systemctl restart ${{ secrets.GUNICORN_SERVICE_NAME }}
+          "${VENV_DIR}/bin/python" manage.py migrate --noinput
 
-          echo "Reloading Nginx"
-          sudo systemctl reload ${{ secrets.NGINX_SERVICE_NAME }}
+          echo "[5/6] Collecting static files..."
+          "${VENV_DIR}/bin/python" manage.py collectstatic --noinput --clear
 
-          echo "Deployment complete"
+          # ── Restart services ─────────────────────────────────────────────────
+          echo "[6/6] Restarting Gunicorn and reloading Nginx..."
+          sudo systemctl restart omnilink-gunicorn
+          sudo systemctl reload nginx
 
-          EOF
+          # ── Health check ─────────────────────────────────────────────────────
+          echo "Verifying deployment..."
+          sleep 3
+          curl -sf http://127.0.0.1:8000/healthz && echo "✅ Gunicorn is up" || echo "⚠️  Health check failed"
+
+          echo ""
+          echo "✅ Deployment complete!"
+
+          ENDSSH

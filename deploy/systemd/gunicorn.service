@@ -1,19 +1,36 @@
 [Unit]
-Description=Gunicorn daemon for Omni Link Django API (requires Python 3.13+)
+Description=Gunicorn daemon for Omni Link Django API
 After=network.target
+Wants=network-online.target
 
 [Service]
 User=ubuntu
 Group=www-data
-WorkingDirectory=/opt/omnilink-api
-EnvironmentFile=/opt/omnilink-api/.env.prod
-ExecStart=/opt/omnilink-api/.venv/bin/gunicorn \
-  --workers 4 \
-  --bind 127.0.0.1:8000 \
-  --timeout 120 \
-  api.wsgi:application
-Restart=always
+WorkingDirectory=/opt/omnilink/project
+EnvironmentFile=/opt/omnilink/.env.prod
+
+ExecStart=/opt/omnilink/venv/bin/gunicorn \
+    --workers 4 \
+    --worker-class sync \
+    --bind 127.0.0.1:8000 \
+    --timeout 120 \
+    --keep-alive 5 \
+    --max-requests 1000 \
+    --max-requests-jitter 100 \
+    --log-level info \
+    --access-logfile /var/log/gunicorn/omnilink_access.log \
+    --error-logfile  /var/log/gunicorn/omnilink_error.log \
+    api.wsgi:application
+
+ExecReload=/bin/kill -s HUP $MAINPID
+
+Restart=on-failure
 RestartSec=5
+StandardError=journal
+SyslogIdentifier=omnilink-gunicorn
+
+KillMode=mixed
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
