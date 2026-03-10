@@ -81,20 +81,80 @@ jobs:
           APP_ROOT="/opt/omnilink"
           PROJECT_DIR="${APP_ROOT}/project"
           VENV_DIR="${APP_ROOT}/venv"
+          ENV_FILE="${APP_ROOT}/.env.prod"
+          STATIC_ROOT="/var/www/omnilink/staticfiles"
+          MEDIA_ROOT="/var/www/omnilink/media"
+          LOG_DIR_GUNICORN="/var/log/gunicorn"
+          DEPLOY_USER="$(id -un)"
+          DEPLOY_GROUP="$(id -gn)"
+          PYTHON_BIN="$(command -v python3.13 || command -v python3.12 || command -v python3.11 || command -v python3 || true)"
 
           echo "────────────────────────────────────"
           echo " Omni Link API — Rolling Deployment"
           echo "────────────────────────────────────"
 
+          echo "[bootstrap] Ensuring deploy directories exist and are writable..."
+          sudo mkdir -p "${APP_ROOT}" "${STATIC_ROOT}" "${MEDIA_ROOT}" "${LOG_DIR_GUNICORN}"
+          sudo chown "${DEPLOY_USER}:${DEPLOY_GROUP}" "${APP_ROOT}"
+          sudo chown -R "${DEPLOY_USER}:www-data" /var/www/omnilink
+          sudo chown -R "${DEPLOY_USER}:www-data" "${LOG_DIR_GUNICORN}"
+          mkdir -p "${PROJECT_DIR}"
+
+          echo "[bootstrap] Ensuring Python virtualenv exists..."
+          if [ -z "${PYTHON_BIN}" ]; then
+            echo "❌ No python3 interpreter found on the server. Install Python before deploying."
+            exit 1
+          fi
+          if [ ! -x "${VENV_DIR}/bin/python" ]; then
+            echo "[init] Creating virtualenv with ${PYTHON_BIN}..."
+            "${PYTHON_BIN}" -m venv "${VENV_DIR}"
+          fi
+          "${VENV_DIR}/bin/python" -m pip install --quiet --upgrade pip wheel setuptools
+
+          echo "[bootstrap] Ensuring production env file exists..."
+          if [ ! -f "${ENV_FILE}" ]; then
+            cat > "${ENV_FILE}" <<'ENVEOF'
+            # Omni Link – Production Environment Variables
+            # Fill in every value, then re-run the deploy workflow.
+            DJANGO_SECRET_KEY=REPLACE_WITH_LONG_RANDOM_SECRET
+            DJANGO_DEBUG=False
+            DJANGO_ALLOWED_HOSTS=wms.uncoverskincare.com
+            DB_NAME=omnilink_prod
+            DB_USER=omnilink_app_user
+            DB_PASSWORD=REPLACE_WITH_RDS_PASSWORD
+            DB_HOST=REPLACE.rds.amazonaws.com
+            DB_PORT=5432
+            STATIC_ROOT=/var/www/omnilink/staticfiles
+            MEDIA_ROOT=/var/www/omnilink/media
+            GOOGLE_OAUTH_CLIENT_ID=
+            GOOGLE_OAUTH_CLIENT_SECRET=
+            SHOPIFY_WEBHOOK_SECRET=
+            DEFAULT_FROM_EMAIL=noreply@uncoverskincare.com
+            EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+            EMAIL_HOST=smtp.yourprovider.com
+            EMAIL_PORT=587
+            EMAIL_HOST_USER=noreply@uncoverskincare.com
+            EMAIL_HOST_PASSWORD=
+            EMAIL_USE_TLS=True
+            CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+            CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
+            CELERY_TASK_ALWAYS_EAGER=False
+            ENVEOF
+            chmod 640 "${ENV_FILE}"
+            echo "❌ Created ${ENV_FILE}. Fill it with real production values, then re-run the workflow."
+            exit 1
+          fi
+
           # ── Clone repo on first deploy ──────────────────────────────────────
           if [ ! -d "${PROJECT_DIR}/.git" ]; then
             echo "[init] Cloning repository..."
+            rm -rf "${PROJECT_DIR}"
             git clone ${{ secrets.EC2_BACKEND_REPO_URL }} "${PROJECT_DIR}"
           fi
 
           # ── Pull latest code ────────────────────────────────────────────────
           echo "[1/6] Pulling latest code..."
-          git -C "${PROJECT_DIR}" fetch --all
+          git -C "${PROJECT_DIR}" fetch --all --prune
           git -C "${PROJECT_DIR}" reset --hard origin/main
 
           # ── Copy updated deploy files ───────────────────────────────────────
@@ -112,14 +172,14 @@ jobs:
 
           # ── Install / update Python dependencies ────────────────────────────
           echo "[3/6] Installing Python dependencies..."
-          "${VENV_DIR}/bin/pip" install --quiet --upgrade pip
           "${VENV_DIR}/bin/pip" install --quiet -r "${PROJECT_DIR}/requirements.txt"
 
           # ── Django management commands ──────────────────────────────────────
           echo "[4/6] Running migrations..."
           cd "${PROJECT_DIR}"
-          source "${APP_ROOT}/.env.prod"
-          export $(grep -v '^#' "${APP_ROOT}/.env.prod" | xargs)
+          set -a
+          source "${ENV_FILE}"
+          set +a
 
           "${VENV_DIR}/bin/python" manage.py migrate --noinput
 
