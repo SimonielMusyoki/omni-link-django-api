@@ -28,10 +28,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-j03atacl2d&fp8fqbaqka-xgta!xqrd%)0ju84nsq+3%_s4d0p'
+SECRET_KEY = config('DJANGO_SECRET_KEY', default='django-insecure-j03atacl2d&fp8fqbaqka-xgta!xqrd%)0ju84nsq+3%_s4d0p')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DJANGO_DEBUG', default=True, cast=bool)
 
 ALLOWED_HOSTS = _parse_csv_env(config('DJANGO_ALLOWED_HOSTS', default=''))
 
@@ -113,6 +113,9 @@ DATABASES = {
         'PASSWORD': config('DB_PASSWORD', default='omnilink_password'),
         'HOST': config('DB_HOST', default='localhost'),
         'PORT': config('DB_PORT', default='5432'),
+        'OPTIONS': {
+            'sslmode': 'require',
+        },
     }
 }
 
@@ -248,6 +251,11 @@ SPECTACULAR_SETTINGS = {
 # Email defaults
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@omnilink.local')
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = config('EMAIL_HOST', default='localhost')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=False, cast=bool)
 
 # Celery configuration
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
