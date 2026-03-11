@@ -171,7 +171,7 @@ jobs:
           sudo ln -sf /etc/nginx/sites-available/omnilink \
                       /etc/nginx/sites-enabled/omnilink
 
-          if [ ! -f "${TLS_CERT_DIR}/fullchain.pem" ] || [ ! -f "${TLS_CERT_DIR}/privkey.pem" ]; then
+          if ! sudo test -f "${TLS_CERT_DIR}/fullchain.pem" || ! sudo test -f "${TLS_CERT_DIR}/privkey.pem"; then
             echo "❌ Missing TLS certificate for ${API_DOMAIN}."
             echo "   Expected files: ${TLS_CERT_DIR}/fullchain.pem and ${TLS_CERT_DIR}/privkey.pem"
             echo "   Issue cert on EC2 first:"
