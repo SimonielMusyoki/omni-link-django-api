@@ -8,6 +8,7 @@ User=ubuntu
 Group=www-data
 WorkingDirectory=/opt/omnilink/project
 EnvironmentFile=/opt/omnilink/.env.prod
+Environment=DJANGO_SETTINGS_MODULE=api.settings_production
 
 ExecStart=/opt/omnilink/venv/bin/gunicorn \
     --workers 4 \

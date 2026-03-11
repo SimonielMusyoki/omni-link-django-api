@@ -192,6 +192,7 @@ jobs:
           set -a
           source "${ENV_FILE}"
           set +a
+          export DJANGO_SETTINGS_MODULE=api.settings_production
 
           "${VENV_DIR}/bin/python" manage.py migrate --noinput
 
