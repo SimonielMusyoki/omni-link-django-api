@@ -1,5 +1,5 @@
 [Unit]
-Description=Gunicorn daemon for Omni Link Django API
+Description=Gunicorn daemon for Omni Link Django API (api-wms.uncoverskincare.co)
 After=network.target
 Wants=network-online.target
 

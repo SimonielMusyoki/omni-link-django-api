@@ -10,13 +10,13 @@
 #   sudo bash deploy/setup.sh
 #
 # After this script completes:
-#   1. Point your DNS A record:  wms.uncoverskincare.com → <EC2 public IP>
+#   1. Point your DNS A record:  api-wms.uncoverskincare.co → <EC2 public IP>
 #   2. Run certbot to issue the TLS certificate (instructions printed at end).
 #   3. Push to main — the GitHub Actions workflow handles all future deploys.
 # =============================================================================
 set -euo pipefail
 
-DOMAIN="wms.uncoverskincare.com"
+DOMAIN="api-wms.uncoverskincare.co"
 APP_ROOT="/opt/omnilink"
 PROJECT_DIR="${APP_ROOT}/project"
 VENV_DIR="${APP_ROOT}/venv"
@@ -104,7 +104,7 @@ if [ ! -f "${ENV_FILE}" ]; then
 # Django
 DJANGO_SECRET_KEY=REPLACE_WITH_LONG_RANDOM_SECRET
 DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=wms.uncoverskincare.com
+DJANGO_ALLOWED_HOSTS=api-wms.uncoverskincare.co
 
 # Postgres (Amazon RDS)
 DB_NAME=omnilink_prod
@@ -209,7 +209,7 @@ else
     cat > "${NGINX_CONF_DEST}" <<'NGXEOF'
 server {
     listen 80;
-    server_name wms.uncoverskincare.com;
+    server_name api-wms.uncoverskincare.co;
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -305,7 +305,7 @@ echo "  1. Edit the production env file:"
 echo "       sudo nano ${APP_ROOT}/.env.prod"
 echo ""
 echo "  2. Point your DNS A record:"
-echo "       wms.uncoverskincare.com  →  $(curl -sf https://checkip.amazonaws.com || echo '<EC2 public IP>')"
+echo "       api-wms.uncoverskincare.co  →  $(curl -sf https://checkip.amazonaws.com || echo '<EC2 public IP>')"
 echo ""
 echo "  3. Wait for DNS to propagate, then obtain a TLS certificate:"
 echo "       sudo certbot --nginx -d ${DOMAIN} --non-interactive --agree-tos -m admin@uncoverskincare.com"

@@ -85,6 +85,8 @@ jobs:
           STATIC_ROOT="/var/www/omnilink/staticfiles"
           MEDIA_ROOT="/var/www/omnilink/media"
           LOG_DIR_GUNICORN="/var/log/gunicorn"
+          API_DOMAIN="api-wms.uncoverskincare.co"
+          TLS_CERT_DIR="/etc/letsencrypt/live/${API_DOMAIN}"
           DEPLOY_USER="$(id -un)"
           DEPLOY_GROUP="$(id -gn)"
           PYTHON_BIN="$(command -v python3.13 || command -v python3.12 || command -v python3.11 || command -v python3 || true)"
@@ -118,7 +120,7 @@ jobs:
               printf '%s\n' '# Fill in every value, then re-run the deploy workflow.'
               printf '%s\n' 'DJANGO_SECRET_KEY=REPLACE_WITH_LONG_RANDOM_SECRET'
               printf '%s\n' 'DJANGO_DEBUG=False'
-              printf '%s\n' 'DJANGO_ALLOWED_HOSTS=wms.uncoverskincare.com'
+              printf '%s\n' 'DJANGO_ALLOWED_HOSTS=api-wms.uncoverskincare.co'
               printf '%s\n' 'DB_NAME=omnilink_prod'
               printf '%s\n' 'DB_USER=omnilink_app_user'
               printf '%s\n' 'DB_PASSWORD=REPLACE_WITH_RDS_PASSWORD'
@@ -168,6 +170,15 @@ jobs:
                   "/etc/nginx/sites-available/omnilink"
           sudo ln -sf /etc/nginx/sites-available/omnilink \
                       /etc/nginx/sites-enabled/omnilink
+
+          if [ ! -f "${TLS_CERT_DIR}/fullchain.pem" ] || [ ! -f "${TLS_CERT_DIR}/privkey.pem" ]; then
+            echo "❌ Missing TLS certificate for ${API_DOMAIN}."
+            echo "   Expected files: ${TLS_CERT_DIR}/fullchain.pem and ${TLS_CERT_DIR}/privkey.pem"
+            echo "   Issue cert on EC2 first:"
+            echo "   sudo certbot --nginx -d ${API_DOMAIN} --non-interactive --agree-tos -m admin@uncoverskincare.com"
+            exit 1
+          fi
+
           sudo nginx -t
 
           # ── Install / update Python dependencies ────────────────────────────
