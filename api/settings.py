@@ -15,6 +15,11 @@ from datetime import timedelta
 from decouple import config
 import os
 
+
+def _parse_csv_env(value: str) -> list[str]:
+    """Parse comma-separated env values into a clean list."""
+    return [item.strip() for item in value.split(',') if item.strip()]
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -28,7 +33,7 @@ SECRET_KEY = 'django-insecure-j03atacl2d&fp8fqbaqka-xgta!xqrd%)0ju84nsq+3%_s4d0p
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []  # Override in local_settings.py for development
+ALLOWED_HOSTS = _parse_csv_env(config('DJANGO_ALLOWED_HOSTS', default=''))
 
 
 # Application definition
@@ -207,8 +212,12 @@ SIMPLE_JWT = {
 
 # CORS Configuration
 # Default to empty/restrictive for production. Local development settings in local_settings.py
-CORS_ALLOWED_ORIGINS = []
+CORS_ALLOWED_ORIGINS = _parse_csv_env(config('CORS_ALLOWED_ORIGINS', default=''))
 CORS_ALLOW_CREDENTIALS = True
+
+# CSRF trusted origins are required when using cookie/session auth from a different origin.
+# Example: https://app.uncoverskincare.co
+CSRF_TRUSTED_ORIGINS = _parse_csv_env(config('CSRF_TRUSTED_ORIGINS', default=''))
 
 # Google OAuth Configuration
 GOOGLE_OAUTH_CLIENT_ID = config('GOOGLE_OAUTH_CLIENT_ID', default='')

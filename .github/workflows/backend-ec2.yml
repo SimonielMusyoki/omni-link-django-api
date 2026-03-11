@@ -170,6 +170,7 @@ jobs:
                   "/etc/nginx/sites-available/omnilink"
           sudo ln -sf /etc/nginx/sites-available/omnilink \
                       /etc/nginx/sites-enabled/omnilink
+            sudo rm -f /etc/nginx/sites-enabled/default
 
           if ! sudo test -f "${TLS_CERT_DIR}/fullchain.pem" || ! sudo test -f "${TLS_CERT_DIR}/privkey.pem"; then
             echo "❌ Missing TLS certificate for ${API_DOMAIN}."
