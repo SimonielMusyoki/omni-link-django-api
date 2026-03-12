@@ -30,7 +30,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         queryset = (
             Order.objects
             .filter(owner=user)
-            .select_related('warehouse', 'owner')
+            .select_related('warehouse', 'owner', 'market')
             .prefetch_related(
                 Prefetch('items', queryset=OrderItem.objects.select_related('product'))
             )
@@ -160,13 +160,13 @@ class OrderViewSet(viewsets.ModelViewSet):
         # Find active QuickBooks integration for this order's market
         integration = Integration.objects.filter(
             type=Integration.IntegrationType.QUICKBOOKS,
-            market=order.market,
+            market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
         ).first()
 
         if not integration:
             return Response(
-                {'error': f'No active QuickBooks integration found for {order.market}'},
+                {'error': f'No active QuickBooks integration found for {order.market.name}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -186,13 +186,13 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         integration = Integration.objects.filter(
             type=Integration.IntegrationType.QUICKBOOKS,
-            market=order.market,
+            market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
         ).first()
 
         if not integration:
             return Response(
-                {'error': f'No active QuickBooks integration found for {order.market}'},
+                {'error': f'No active QuickBooks integration found for {order.market.name}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -219,13 +219,13 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         integration = Integration.objects.filter(
             type=Integration.IntegrationType.ODOO,
-            market=order.market,
+            market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
         ).first()
 
         if not integration:
             return Response(
-                {'error': f'No active Odoo integration found for {order.market}'},
+                {'error': f'No active Odoo integration found for {order.market.name}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -245,13 +245,13 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         integration = Integration.objects.filter(
             type=Integration.IntegrationType.ODOO,
-            market=order.market,
+            market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
         ).first()
 
         if not integration:
             return Response(
-                {'error': f'No active Odoo integration found for {order.market}'},
+                {'error': f'No active Odoo integration found for {order.market.name}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -271,13 +271,13 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         integration = Integration.objects.filter(
             type=Integration.IntegrationType.ODOO,
-            market=order.market,
+            market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
         ).first()
 
         if not integration:
             return Response(
-                {'error': f'No active Odoo integration found for {order.market}'},
+                {'error': f'No active Odoo integration found for {order.market.name}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -303,13 +303,13 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         integration = Integration.objects.filter(
             type=Integration.IntegrationType.ODOO,
-            market=order.market,
+            market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
         ).first()
 
         if not integration:
             return Response(
-                {'error': f'No active Odoo integration found for {order.market}'},
+                {'error': f'No active Odoo integration found for {order.market.name}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 

@@ -7,7 +7,6 @@ import hashlib
 import hmac
 import json
 
-from django.test import override_settings
 from authentication.models import UserRole
 from integrations.models import (
     Integration,
@@ -114,6 +113,8 @@ class IntegrationApiTests(APITestCase):
             'credentials': {
                 'store_url': 'https://shop.example.com',
                 'access_token': 'token-1',
+                'api_key': 'shopify-api-key',
+                'api_secret': 'shopify-api-secret',
             },
         }
 
@@ -133,6 +134,8 @@ class IntegrationApiTests(APITestCase):
                 'credentials': {
                     'store_url': 'https://shop.example.com',
                     'access_token': 'token-1',
+                    'api_key': 'shopify-api-key',
+                    'api_secret': 'shopify-api-secret',
                 },
             },
             format='json',
@@ -203,6 +206,25 @@ class IntegrationApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data['success'])
+
+    def test_reject_missing_shopify_api_secret(self):
+        response = self.client.post(
+            '/api/integrations/',
+            {
+                'name': 'Kenya Shopify',
+                'type': 'SHOPIFY',
+                'market': 'Kenya',
+                'credentials': {
+                    'store_url': 'https://kenya-shop.myshopify.com',
+                    'access_token': 'token-1',
+                    'api_key': 'shopify-api-key',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('credentials', response.data)
 
 
 class ShopifyOrderMappingRulesTests(APITestCase):
@@ -280,6 +302,8 @@ class IntegrationPermissionTests(APITestCase):
                 'credentials': {
                     'store_url': 'https://shop.example.com',
                     'access_token': 'token-1',
+                    'api_key': 'shopify-api-key',
+                    'api_secret': 'shopify-api-secret',
                 },
             },
             format='json',
@@ -292,9 +316,9 @@ class IntegrationPermissionTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
-@override_settings(SHOPIFY_WEBHOOK_SECRET='test-webhook-secret')
 class ShopifyWebhookApiTests(APITestCase):
     def setUp(self):
+        self.webhook_secret = 'test-webhook-secret'
         self.user = User.objects.create_user(
             email='manager@example.com',
             password='secret123',
@@ -317,6 +341,8 @@ class ShopifyWebhookApiTests(APITestCase):
             integration=self.integration,
             store_url='https://kenya-shop.myshopify.com',
             access_token='shopify-token',
+            api_key='shopify-api-key',
+            api_secret=self.webhook_secret,
             api_version='2024-01',
         )
 
@@ -331,7 +357,7 @@ class ShopifyWebhookApiTests(APITestCase):
         raw = json.dumps(payload).encode('utf-8')
         signature = base64.b64encode(
             hmac.new(
-                b'test-webhook-secret',
+                self.webhook_secret.encode('utf-8'),
                 raw,
                 hashlib.sha256,
             ).digest()
@@ -388,7 +414,7 @@ class ShopifyWebhookApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(Order.objects.count(), 1)
         order = Order.objects.get(shopify_order_id='99001')
-        self.assertEqual(order.market, 'Kenya')
+        self.assertEqual(order.market.name, 'Kenya')
         self.assertEqual(order.currency, 'KES')
         self.assertTrue(
             ShopifyWebhookDelivery.objects.filter(
@@ -438,7 +464,7 @@ class ShopifyWebhookApiTests(APITestCase):
         raw = json.dumps(payload).encode('utf-8')
         signature = base64.b64encode(
             hmac.new(
-                b'test-webhook-secret',
+                self.webhook_secret.encode('utf-8'),
                 raw,
                 hashlib.sha256,
             ).digest()

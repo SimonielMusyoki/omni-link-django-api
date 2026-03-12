@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator
 from decimal import Decimal
+from products.models import Market
 
 User = get_user_model()
 
@@ -112,8 +113,13 @@ class Order(models.Model):
     shopify_order_number = models.CharField(max_length=100, db_index=True, help_text='Shopify Order Number')
 
     # Market & Currency
-    market = models.CharField(max_length=100, db_index=True, help_text='Market/Country (e.g., Nigeria, Kenya, Ghana)')
-    currency = models.CharField(max_length=3, default='USD', help_text='ISO Currency Code (e.g., NGN, KES, USD)')
+    market = models.ForeignKey(
+        Market,
+        on_delete=models.PROTECT,
+        related_name='orders',
+        db_index=True,
+        help_text='Market/Country for this order',
+    )
     exchange_rate = models.DecimalField(
         max_digits=12,
         decimal_places=6,
@@ -279,7 +285,12 @@ class Order(models.Model):
         ]
 
     def __str__(self):
-        return f"Order {self.order_number} ({self.market})"
+        return f"Order {self.order_number} ({self.market.name})"
+
+    @property
+    def currency(self):
+        """Currency is sourced from the linked Market."""
+        return self.market.currency if self.market_id else 'USD'
 
     @property
     def total_items(self):

@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from products.models import Warehouse
+from products.models import Warehouse, Market
 from orders.models import Order
 
 User = get_user_model()
@@ -28,14 +28,17 @@ class OrderModelTest(TestCase):
             capacity=1000,
             manager=self.user,
         )
+        self.market, _ = Market.objects.get_or_create(
+            name='Kenya',
+            defaults={'code': 'KE', 'currency': 'KES'},
+        )
 
     def _create_order(self, **overrides):
         payload = {
             'order_number': 'ORD001',
             'shopify_order_id': 'SHP-001',
             'shopify_order_number': '1001',
-            'market': 'Kenya',
-            'currency': 'KES',
+            'market': self.market,
             'customer_email': 'customer@test.com',
             'customer_name': 'John Doe',
             'subtotal_price': Decimal('199.98'),
@@ -57,6 +60,7 @@ class OrderModelTest(TestCase):
         order = self._create_order()
         self.assertEqual(order.order_number, 'ORD001')
         self.assertEqual(order.status, Order.PENDING)
+        self.assertEqual(order.currency, 'KES')
 
     def test_unique_order_number(self):
         """Test order number uniqueness"""
@@ -82,14 +86,17 @@ class OrderAPITest(APITestCase):
             capacity=1000,
             manager=self.user,
         )
+        self.market, _ = Market.objects.get_or_create(
+            name='Kenya',
+            defaults={'code': 'KE', 'currency': 'KES'},
+        )
 
     def _create_order(self, idx=1, **overrides):
         payload = {
             'order_number': f'ORD{idx:03d}',
             'shopify_order_id': f'SHP-{idx:03d}',
             'shopify_order_number': str(1000 + idx),
-            'market': 'Kenya',
-            'currency': 'KES',
+            'market': self.market,
             'customer_email': f'customer{idx}@test.com',
             'customer_name': 'John Doe',
             'subtotal_price': Decimal('199.98'),
