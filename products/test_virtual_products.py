@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 
+from authentication.models import UserRole
 from products.models import Category, Product, Warehouse
 
 User = get_user_model()
@@ -14,6 +15,7 @@ class VirtualProductTests(APITestCase):
         self.user = User.objects.create_user(
             email='virtual@example.com',
             password='testpass123',
+            role=UserRole.MANAGER,
         )
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
