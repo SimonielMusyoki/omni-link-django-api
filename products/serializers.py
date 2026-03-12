@@ -128,19 +128,29 @@ class ProductSerializer(serializers.ModelSerializer):
     total_stock = serializers.SerializerMethodField()
     needs_reorder = serializers.SerializerMethodField()
     bundle_items = BundleItemSerializer(many=True, read_only=True)
+    bundle_items_input = BundleItemWriteSerializer(many=True, write_only=True, required=False)
     is_kit = serializers.BooleanField(source='is_bundle', required=False)
     kit_items = serializers.SerializerMethodField()
+    kit_items_input = BundleItemWriteSerializer(many=True, write_only=True, required=False)
 
     class Meta:
         model = Product
         fields = [
             'id', 'name', 'description', 'sku', 'category', 'category_name',
             'price', 'reorder_level', 'image_url', 'is_bundle', 'is_kit', 'is_physical',
-            'bundle_items', 'kit_items',
+            'bundle_items', 'bundle_items_input', 'kit_items', 'kit_items_input',
             'total_stock', 'needs_reorder',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def to_internal_value(self, data):
+        mapped = data.copy() if hasattr(data, 'copy') else dict(data)
+        if 'bundle_items' in data and 'bundle_items_input' not in mapped:
+            mapped['bundle_items_input'] = data.get('bundle_items')
+        if 'kit_items' in data and 'kit_items_input' not in mapped:
+            mapped['kit_items_input'] = data.get('kit_items')
+        return super().to_internal_value(mapped)
 
     def get_total_stock(self, obj):
         annotated = getattr(obj, 'annotated_total_stock', None)
@@ -160,6 +170,15 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        bundle_items_input = attrs.pop('bundle_items_input', None)
+        kit_items_input = attrs.pop('kit_items_input', None)
+
+        if bundle_items_input is not None and kit_items_input is not None:
+            raise serializers.ValidationError(
+                'Provide bundle_items or kit_items, not both in the same request.'
+            )
+
+        component_items = bundle_items_input if bundle_items_input is not None else kit_items_input
         is_physical = attrs.get('is_physical')
         if is_physical is None and self.instance is not None:
             is_physical = self.instance.is_physical
@@ -167,10 +186,66 @@ class ProductSerializer(serializers.ModelSerializer):
         if is_physical is False:
             attrs['reorder_level'] = 0
 
+        final_is_bundle = attrs.get('is_bundle', getattr(self.instance, 'is_bundle', False))
+        if component_items is not None:
+            if not final_is_bundle and component_items:
+                raise serializers.ValidationError(
+                    'Only bundle products can include bundle_items or kit_items.'
+                )
+
+            seen_component_ids = set()
+            for item in component_items:
+                component = item['component']
+                if component.pk in seen_component_ids:
+                    raise serializers.ValidationError(
+                        'Each component can only appear once in a bundle.'
+                    )
+                if self.instance is not None and component.pk == self.instance.pk:
+                    raise serializers.ValidationError('A bundle cannot contain itself.')
+                if component.is_bundle:
+                    raise serializers.ValidationError(
+                        'Nested bundles are not supported. Components must be regular products.'
+                    )
+                seen_component_ids.add(component.pk)
+
+        attrs['_component_items'] = component_items
+
         return attrs
 
     def get_kit_items(self, obj):
         return BundleItemSerializer(obj.bundle_items.all(), many=True).data
+
+    def _replace_bundle_items(self, product, component_items):
+        product.bundle_items.all().delete()
+        if not component_items:
+            return
+
+        ProductBundle.objects.bulk_create([
+            ProductBundle(
+                bundle=product,
+                component=item['component'],
+                quantity=item['quantity'],
+            )
+            for item in component_items
+        ])
+
+    def create(self, validated_data):
+        component_items = validated_data.pop('_component_items', None)
+        with transaction.atomic():
+            product = Product.objects.create(**validated_data)
+            if component_items:
+                self._replace_bundle_items(product, component_items)
+        return product
+
+    def update(self, instance, validated_data):
+        component_items = validated_data.pop('_component_items', None)
+        with transaction.atomic():
+            product = super().update(instance, validated_data)
+            if not product.is_bundle:
+                product.bundle_items.all().delete()
+            elif component_items is not None:
+                self._replace_bundle_items(product, component_items)
+        return product
 
 
 class AssembleBundleSerializer(serializers.Serializer):

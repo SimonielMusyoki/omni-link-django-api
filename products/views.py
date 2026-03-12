@@ -215,9 +215,10 @@ class ProductViewSet(viewsets.ModelViewSet):
     CRUD for products.
 
     Custom actions:
-    • GET  /products/{id}/inventory/   → stock across all warehouses
-    • POST /products/{id}/assemble/    → assemble bundle from components
-    • POST /products/{id}/disassemble/ → break bundle back into components
+    • GET  /products/physical-products/    → list only individual physical products
+    • GET  /products/{id}/inventory/       → stock across all warehouses
+    • POST /products/{id}/assemble/        → assemble bundle from components
+    • POST /products/{id}/disassemble/     → break bundle back into components
     """
 
     queryset = (
@@ -229,7 +230,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['category', 'is_bundle']
+    filterset_fields = ['category', 'is_bundle', 'is_physical']
     search_fields = ['name', 'sku', 'description']
     ordering_fields = ['name', 'price', 'created_at']
     ordering = ['-created_at']
@@ -244,6 +245,24 @@ class ProductViewSet(viewsets.ModelViewSet):
             elif normalized in {'0', 'false', 'no'}:
                 queryset = queryset.filter(is_bundle=False)
         return queryset
+
+    @action(detail=False, methods=['get'], url_path='physical-products', url_name='physical-products')
+    def physical_products(self, request):
+        """
+        List only individual physical products (non-bundles).
+        
+        Example: GET /api/products/physical-products/
+        """
+        queryset = self.get_queryset().filter(is_physical=True, is_bundle=False)
+        queryset = self.filter_queryset(queryset)
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     @action(detail=True, methods=['get'])
     def inventory(self, request, pk=None):

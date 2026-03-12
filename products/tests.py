@@ -578,6 +578,56 @@ class ProductAPITest(APITestCase, _SetupMixin):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data['count'], 2)
 
+    def test_physical_products_endpoint(self):
+        """Test /products/physical-products/ returns only individual physical products."""
+        # Create a virtual product
+        virtual_product = Product.objects.create(
+            name='Virtual Course',
+            sku='VIRT-001',
+            category=self.category,
+            price=Decimal('99.99'),
+            is_physical=False,
+        )
+        
+        # Create a bundle product
+        bundle_product = Product.objects.create(
+            name='Bundle Pack',
+            sku='BUNDLE-001',
+            category=self.category,
+            price=Decimal('199.99'),
+            is_bundle=True,
+        )
+        
+        # GET /physical-products should only return the physical individual product
+        r = self.client.get('/api/products/physical-products/')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data['count'], 1)
+        self.assertEqual(r.data['results'][0]['id'], self.product.id)
+        self.assertTrue(r.data['results'][0]['is_physical'])
+        self.assertFalse(r.data['results'][0]['is_bundle'])
+
+    def test_physical_products_endpoint_pagination(self):
+        """Test that physical-products endpoint respects pagination."""
+        # Create additional physical individual products
+        for i in range(5):
+            Product.objects.create(
+                name=f'Product {i}',
+                sku=f'PROD-{i:03d}',
+                category=self.category,
+                price=Decimal('19.99'),
+                is_physical=True,
+                is_bundle=False,
+            )
+        
+        r = self.client.get('/api/products/physical-products/')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(r.data['count'], 6)  # original + 5 new
+        
+        # All results should be physical and individual products
+        for product in r.data['results']:
+            self.assertTrue(product['is_physical'])
+            self.assertFalse(product['is_bundle'])
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # API TESTS – INVENTORY (list/retrieve/update)
@@ -1004,6 +1054,46 @@ class KitAPITest(APITestCase, _KitSetupMixin):
         })
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertTrue(r.data['is_kit'])
+
+    def test_create_bundle_with_multiple_components(self):
+        r = self.client.post('/api/products/', {
+            'name': 'Mega Pack',
+            'sku': 'KIT-MULTI',
+            'price': '49.99',
+            'is_bundle': True,
+            'bundle_items': [
+                {'component': self.component_a.pk, 'quantity': 3},
+                {'component': self.component_b.pk, 'quantity': 2},
+            ],
+        }, format='json')
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(r.data['bundle_items']), 2)
+        self.assertEqual(
+            Product.objects.get(pk=r.data['id']).bundle_items.count(),
+            2,
+        )
+
+    def test_update_bundle_with_multiple_components_in_one_request(self):
+        r = self.client.patch(f'/api/products/{self.kit.pk}/', {
+            'bundle_items': [
+                {'component': self.component_a.pk, 'quantity': 5},
+            ],
+        }, format='json')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(r.data['bundle_items']), 1)
+        self.assertEqual(r.data['bundle_items'][0]['quantity'], 5)
+        self.assertEqual(self.kit.bundle_items.count(), 1)
+
+    def test_non_bundle_cannot_accept_multiple_components(self):
+        r = self.client.post('/api/products/', {
+            'name': 'Regular Product',
+            'sku': 'REG-NO-BUNDLE',
+            'price': '9.99',
+            'bundle_items': [
+                {'component': self.component_a.pk, 'quantity': 1},
+            ],
+        }, format='json')
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_assemble_action(self):
         services.add_stock(product=self.component_a, warehouse=self.warehouse_a, quantity=30)
