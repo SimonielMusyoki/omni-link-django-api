@@ -9,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
+from authentication.permissions import IsAdminOrOwner
 
 from .models import Integration
 from .serializers import IntegrationSerializer
@@ -34,7 +35,7 @@ class IntegrationViewSet(viewsets.ModelViewSet):
         )
     )
     serializer_class = IntegrationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['warehouse', 'type', 'status', 'market']
     search_fields = ['name', 'type', 'market']

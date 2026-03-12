@@ -5,6 +5,7 @@ from django.utils import timezone
 
 class UserRole(models.TextChoices):
     """User role choices for role-based access control"""
+    OWNER = 'OWNER', 'Owner'
     ADMIN = 'ADMIN', 'Admin'
     MANAGER = 'MANAGER', 'Manager'
     USER = 'USER', 'User'
@@ -29,7 +30,7 @@ class CustomUserManager(BaseUserManager):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('is_active', True)
-        extra_fields.setdefault('role', UserRole.ADMIN)
+        extra_fields.setdefault('role', UserRole.OWNER)
 
         if extra_fields.get('is_staff') is not True:
             raise ValueError('Superuser must have is_staff=True.')
@@ -85,11 +86,15 @@ class User(AbstractBaseUser, PermissionsMixin):
         """Check if user has a specific role"""
         return self.role == role
 
+    def is_owner(self):
+        """Check if user is an owner"""
+        return self.role == UserRole.OWNER or self.is_superuser
+
     def is_admin(self):
-        """Check if user is an admin"""
-        return self.role == UserRole.ADMIN or self.is_superuser
+        """Check if user is an admin or owner"""
+        return self.role in [UserRole.OWNER, UserRole.ADMIN] or self.is_superuser
 
     def is_manager(self):
         """Check if user is a manager or higher"""
-        return self.role in [UserRole.ADMIN, UserRole.MANAGER] or self.is_superuser
+        return self.role in [UserRole.OWNER, UserRole.ADMIN, UserRole.MANAGER] or self.is_superuser
 

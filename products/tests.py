@@ -24,8 +24,10 @@ from products.models import (
     KitItem,
     Inventory,
     InventoryTransfer,
+    Market,
 )
 from products import services
+from authentication.models import UserRole
 
 User = get_user_model()
 
@@ -338,6 +340,37 @@ class CategoryAPITest(APITestCase, _SetupMixin):
         self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
+class MarketAPITest(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email='owner-market@example.com',
+            password='testpass123',
+            role=UserRole.OWNER,
+        )
+        self.manager = User.objects.create_user(
+            email='manager-market@example.com',
+            password='testpass123',
+            role=UserRole.MANAGER,
+        )
+        self.client = APIClient()
+
+    def test_owner_can_create_market(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(
+            '/api/markets/',
+            {'name': 'Ghana', 'code': 'gh', 'currency': 'GHS'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['code'], 'GH')
+
+    def test_manager_cannot_manage_markets(self):
+        Market.objects.create(name='Uganda', code='UG', currency='UGX')
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.get('/api/markets/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # API TESTS – WAREHOUSE
 # ═══════════════════════════════════════════════════════════════════════════
@@ -370,6 +403,21 @@ class WarehouseAPITest(APITestCase, _SetupMixin):
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data['capacity'], 9999)
+
+    def test_update_manager(self):
+        new_manager = User.objects.create_user(
+            email='new-manager@example.com',
+            password='testpass123',
+            role=UserRole.MANAGER,
+        )
+        r = self.client.patch(
+            f'/api/warehouses/{self.warehouse_a.pk}/',
+            {'manager': new_manager.pk},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.warehouse_a.refresh_from_db()
+        self.assertEqual(self.warehouse_a.manager_id, new_manager.pk)
 
     def test_delete(self):
         r = self.client.delete(f'/api/warehouses/{self.warehouse_b.pk}/')
@@ -968,6 +1016,9 @@ class KitAPITest(APITestCase, _KitSetupMixin):
 class KitItemAPITest(APITestCase, _KitSetupMixin):
     def setUp(self):
         self._kit_setup()
+        self.user.role = UserRole.OWNER
+        self.user.save(update_fields=['role'])
+        self.client.force_authenticate(user=self.user)
 
     def test_list(self):
         r = self.client.get('/api/kit-items/')
@@ -1020,4 +1071,14 @@ class KitItemAPITest(APITestCase, _KitSetupMixin):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data['component_name'], 'Screw')
         self.assertEqual(r.data['component_sku'], 'SCR-001')
+
+    def test_manager_cannot_manage_product_mappings(self):
+        manager = User.objects.create_user(
+            email='bundle-manager@example.com',
+            password='testpass123',
+            role=UserRole.MANAGER,
+        )
+        self.client.force_authenticate(user=manager)
+        r = self.client.get('/api/kit-items/')
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 

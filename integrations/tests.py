@@ -8,6 +8,7 @@ import hmac
 import json
 
 from django.test import override_settings
+from authentication.models import UserRole
 from integrations.models import (
     Integration,
     QuickBooksCredentials,
@@ -26,6 +27,7 @@ class IntegrationApiTests(APITestCase):
         self.user = User.objects.create_user(
             email='owner@example.com',
             password='secret123',
+            role=UserRole.OWNER,
         )
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
@@ -241,6 +243,53 @@ class ShopifyOrderMappingRulesTests(APITestCase):
         market, currency = _normalize_market_and_currency(self.integration_nigeria, payload)
         self.assertEqual(market, 'Nigeria')
         self.assertEqual(currency, 'NGN')
+
+
+class IntegrationPermissionTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email='owner-permissions@example.com',
+            password='secret123',
+            role=UserRole.OWNER,
+        )
+        self.manager = User.objects.create_user(
+            email='manager-permissions@example.com',
+            password='secret123',
+            role=UserRole.MANAGER,
+        )
+        self.owner_client = APIClient()
+        self.owner_client.force_authenticate(user=self.owner)
+        self.manager_client = APIClient()
+        self.manager_client.force_authenticate(user=self.manager)
+        self.warehouse = Warehouse.objects.create(
+            name='Permissions Warehouse',
+            location='Nairobi',
+            address='Nairobi, Kenya',
+            capacity=10000,
+            manager=self.owner,
+        )
+
+    def test_owner_can_manage_integrations(self):
+        response = self.owner_client.post(
+            '/api/integrations/',
+            {
+                'name': 'Owner Shopify',
+                'type': 'SHOPIFY',
+                'market': 'Kenya',
+                'warehouse': self.warehouse.id,
+                'credentials': {
+                    'store_url': 'https://shop.example.com',
+                    'access_token': 'token-1',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_manager_cannot_manage_integrations(self):
+        response = self.manager_client.get('/api/integrations/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 @override_settings(SHOPIFY_WEBHOOK_SECRET='test-webhook-secret')

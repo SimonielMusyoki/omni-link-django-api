@@ -18,6 +18,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
+from authentication.permissions import IsAdminOrOwner
 
 from .models import (
     Category,
@@ -52,7 +53,7 @@ class MarketViewSet(viewsets.ModelViewSet):
     """CRUD for markets."""
     queryset = Market.objects.all()
     serializer_class = MarketSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['is_active']
     search_fields = ['name', 'code']
@@ -100,7 +101,7 @@ class WarehouseViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
 
     def perform_create(self, serializer):
-        serializer.save(manager=self.request.user)
+        serializer.save(manager=serializer.validated_data.get('manager', self.request.user))
 
     # ---- custom actions ---------------------------------------------------
 
@@ -326,7 +327,7 @@ class BundleItemViewSet(viewsets.ModelViewSet):
 
     queryset = ProductBundle.objects.select_related('bundle', 'component').all()
     serializer_class = BundleItemSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['bundle', 'component']
     ordering = ['bundle', 'component']

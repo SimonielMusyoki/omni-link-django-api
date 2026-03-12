@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import (
@@ -10,6 +11,8 @@ from .models import (
     InventoryTransfer,
     Market,
 )
+
+User = get_user_model()
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +53,10 @@ class CategorySerializer(serializers.ModelSerializer):
 # Warehouse
 # ---------------------------------------------------------------------------
 class WarehouseSerializer(serializers.ModelSerializer):
+    manager = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(is_active=True),
+        required=False,
+    )
     manager_email = serializers.CharField(source='manager.email', read_only=True)
     total_stock = serializers.SerializerMethodField()
 
@@ -60,7 +67,7 @@ class WarehouseSerializer(serializers.ModelSerializer):
             'total_stock', 'manager', 'manager_email',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'manager']
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_total_stock(self, obj):
         annotated = getattr(obj, 'annotated_total_stock', None)
