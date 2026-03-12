@@ -135,6 +135,11 @@ class UserManagementPermissionTests(APITestCase):
             password='ManagerPass123!',
             role=UserRole.MANAGER,
         )
+        self.user = User.objects.create_user(
+            email='user@test.com',
+            password='UserPass123!',
+            role=UserRole.USER,
+        )
         self.target = User.objects.create_user(
             email='target@test.com',
             password='TargetPass123!',
@@ -161,8 +166,35 @@ class UserManagementPermissionTests(APITestCase):
         response = self.client.get('/api/auth/users/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_user_can_list_users(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get('/api/auth/users/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_user_can_retrieve_user_detail(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(f'/api/auth/users/{self.target.pk}/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_unauthenticated_cannot_list_users(self):
+        response = self.client.get('/api/auth/users/')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_unauthenticated_cannot_retrieve_user_detail(self):
+        response = self.client.get(f'/api/auth/users/{self.target.pk}/')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_manager_cannot_update_users(self):
         self.client.force_authenticate(user=self.manager)
+        response = self.client.patch(
+            f'/api/auth/users/{self.target.pk}/',
+            {'role': UserRole.USER},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_user_cannot_update_users(self):
+        self.client.force_authenticate(user=self.user)
         response = self.client.patch(
             f'/api/auth/users/{self.target.pk}/',
             {'role': UserRole.USER},

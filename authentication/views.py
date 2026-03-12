@@ -188,7 +188,7 @@ class ChangePasswordView(APIView):
 
 
 class UserListView(generics.ListAPIView):
-    """View for listing all users (Admin/Owner only)."""
+    """List users: any authenticated user can read; writes remain admin/owner-only."""
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwner]
@@ -200,7 +200,7 @@ class UserListView(generics.ListAPIView):
 
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """View for user details (Admin/Owner only)."""
+    """User detail: any authenticated user can read; writes remain admin/owner-only."""
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwner]
