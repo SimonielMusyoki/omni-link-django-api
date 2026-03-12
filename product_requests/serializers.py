@@ -59,6 +59,9 @@ class ProductRequestItemSerializer(serializers.ModelSerializer):
         model = ProductRequestItem
         fields = ['id', 'product', 'product_name', 'product_sku', 'quantity']
         read_only_fields = ['id']
+        extra_kwargs = {
+            'quantity': {'min_value': 1},
+        }
 
 
 class ProductRequestSerializer(serializers.ModelSerializer):
@@ -68,7 +71,7 @@ class ProductRequestSerializer(serializers.ModelSerializer):
     approver_email = serializers.CharField(source='approver.email', read_only=True, allow_null=True)
     approved_by_email = serializers.CharField(source='approved_by.email', read_only=True, allow_null=True)
     warehouse_name = serializers.CharField(source='warehouse.name', read_only=True, allow_null=True)
-    items = ProductRequestItemSerializer(many=True, read_only=True)
+    items = ProductRequestItemSerializer(many=True, required=False)
     timeline_events = ProductRequestEventSerializer(source='events', many=True, read_only=True)
 
     class Meta:
@@ -89,12 +92,62 @@ class ProductRequestSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        items = attrs.get('items')
+
         if self.instance is None:
             errors = {}
             if not attrs.get('approver'):
                 errors['approver'] = 'Approver is required.'
             if not attrs.get('warehouse'):
                 errors['warehouse'] = 'Warehouse is required.'
+            if not items:
+                errors['items'] = 'At least one item is required.'
             if errors:
                 raise serializers.ValidationError(errors)
+
+        if items is not None:
+            if len(items) == 0:
+                raise serializers.ValidationError({'items': 'At least one item is required.'})
+
+            product_ids = [item['product'].id for item in items if item.get('product')]
+            if len(product_ids) != len(set(product_ids)):
+                raise serializers.ValidationError({'items': 'Each product can only appear once per request.'})
+
         return attrs
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items', [])
+        req = ProductRequest.objects.create(**validated_data)
+        ProductRequestItem.objects.bulk_create(
+            [
+                ProductRequestItem(
+                    request=req,
+                    product=item['product'],
+                    quantity=item['quantity'],
+                )
+                for item in items_data
+            ]
+        )
+        return req
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('items', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if items_data is not None:
+            instance.items.all().delete()
+            ProductRequestItem.objects.bulk_create(
+                [
+                    ProductRequestItem(
+                        request=instance,
+                        product=item['product'],
+                        quantity=item['quantity'],
+                    )
+                    for item in items_data
+                ]
+            )
+
+        return instance
+

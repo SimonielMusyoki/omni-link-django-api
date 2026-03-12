@@ -1,3 +1,5 @@
+import logging
+
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -8,6 +10,8 @@ from .tasks import (
     send_request_approved_to_manager,
     send_request_ready_to_collect_to_requester,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _log_event(*, req: ProductRequest, event_type: str, actor=None, note: str = '', metadata=None):
@@ -20,6 +24,19 @@ def _log_event(*, req: ProductRequest, event_type: str, actor=None, note: str = 
     )
 
 
+def _enqueue_task_safely(task, request_id: int):
+    """Best-effort async enqueue without breaking request flow when broker is down."""
+    try:
+        task.delay(request_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            'Failed to enqueue product request task %s for request_id=%s: %s',
+            getattr(task, 'name', str(task)),
+            request_id,
+            exc,
+        )
+
+
 @transaction.atomic
 def create_request(*, user, serializer):
     req = serializer.save(requested_by=user)
@@ -29,7 +46,7 @@ def create_request(*, user, serializer):
         actor=user,
         note=f'{user.email} submitted this request.',
     )
-    transaction.on_commit(lambda: send_request_created_to_approver.delay(req.id))
+    transaction.on_commit(lambda: _enqueue_task_safely(send_request_created_to_approver, req.id))
     return req
 
 
@@ -51,7 +68,7 @@ def approve_request(*, req: ProductRequest, actor):
         note=f'{actor.email} approved this request.',
     )
 
-    transaction.on_commit(lambda: send_request_approved_to_manager.delay(req.id))
+    transaction.on_commit(lambda: _enqueue_task_safely(send_request_approved_to_manager, req.id))
     return req
 
 
@@ -95,5 +112,5 @@ def mark_ready_to_collect(*, req: ProductRequest, actor):
         note=f'{actor.email} marked this request ready to collect.',
     )
 
-    transaction.on_commit(lambda: send_request_ready_to_collect_to_requester.delay(req.id))
+    transaction.on_commit(lambda: _enqueue_task_safely(send_request_ready_to_collect_to_requester, req.id))
     return req

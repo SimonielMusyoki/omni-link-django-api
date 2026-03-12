@@ -5,7 +5,8 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
-from products.models import Warehouse
+from authentication.models import UserRole
+from products.models import Warehouse, Product
 from product_requests.models import ProductRequest, ProductRequestEvent
 
 User = get_user_model()
@@ -37,9 +38,9 @@ class RequestModelTest(TestCase):
 class RequestWorkflowAPITest(APITestCase):
     def setUp(self):
         self.client = APIClient()
-        self.requester = User.objects.create_user(email='request@test.com', password='testpass123')
-        self.approver = User.objects.create_user(email='approver@test.com', password='testpass123')
-        self.manager = User.objects.create_user(email='manager@test.com', password='testpass123')
+        self.requester = User.objects.create_user(email='request@test.com', password='testpass123', role=UserRole.USER)
+        self.approver = User.objects.create_user(email='approver@test.com', password='testpass123', role=UserRole.MANAGER)
+        self.manager = User.objects.create_user(email='manager@test.com', password='testpass123', role=UserRole.MANAGER)
         self.other_user = User.objects.create_user(email='other@test.com', password='testpass123')
         self.warehouse = Warehouse.objects.create(
             name='Test Warehouse',
@@ -47,6 +48,16 @@ class RequestWorkflowAPITest(APITestCase):
             address='123 Main St',
             capacity=1000,
             manager=self.manager,
+        )
+        self.product_a = Product.objects.create(
+            name='Aloe Gel',
+            sku='REQ-ALOE-001',
+            price='10.00',
+        )
+        self.product_b = Product.objects.create(
+            name='Vitamin C',
+            sku='REQ-VITC-001',
+            price='15.00',
         )
 
     def _create_request(self):
@@ -67,15 +78,38 @@ class RequestWorkflowAPITest(APITestCase):
                     'reason': 'Need inventory transfer',
                     'approver': self.approver.id,
                     'warehouse': self.warehouse.id,
+                    'items': [
+                        {'product': self.product_a.id, 'quantity': 2},
+                        {'product': self.product_b.id, 'quantity': 1},
+                    ],
                 },
                 format='json',
             )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mocked_delay.assert_called_once()
+        self.assertEqual(len(response.data['items']), 2)
         event_types = list(
             ProductRequestEvent.objects.filter(request_id=response.data['id']).values_list('event_type', flat=True)
         )
         self.assertIn(ProductRequestEvent.REQUEST_CREATED, event_types)
+
+    @patch('product_requests.services.send_request_created_to_approver.delay', side_effect=AttributeError("'NoneType' object has no attribute 'Redis'"))
+    def test_create_request_succeeds_when_task_enqueue_fails(self, _mocked_delay):
+        self.client.force_authenticate(user=self.requester)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                '/api/product-requests/',
+                {
+                    'reason': 'Need inventory transfer',
+                    'approver': self.approver.id,
+                    'warehouse': self.warehouse.id,
+                    'items': [
+                        {'product': self.product_a.id, 'quantity': 1},
+                    ],
+                },
+                format='json',
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_create_request_requires_approver_and_warehouse(self):
         self.client.force_authenticate(user=self.requester)
@@ -83,6 +117,36 @@ class RequestWorkflowAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('approver', response.data)
         self.assertIn('warehouse', response.data)
+        self.assertIn('items', response.data)
+
+    def test_non_manager_user_sees_only_own_product_requests(self):
+        own_req = self._create_request()
+        ProductRequest.objects.create(
+            reason='Other request',
+            requested_by=self.other_user,
+            approver=self.approver,
+            warehouse=self.warehouse,
+        )
+
+        self.client.force_authenticate(user=self.requester)
+        response = self.client.get('/api/product-requests/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], own_req.id)
+
+    def test_manager_can_see_all_product_requests(self):
+        self._create_request()
+        ProductRequest.objects.create(
+            reason='Other request',
+            requested_by=self.other_user,
+            approver=self.approver,
+            warehouse=self.warehouse,
+        )
+
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.get('/api/product-requests/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 2)
 
     @patch('product_requests.services.send_request_approved_to_manager.delay')
     def test_only_assigned_approver_can_approve(self, mocked_delay):

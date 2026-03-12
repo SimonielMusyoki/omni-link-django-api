@@ -1,4 +1,3 @@
-from django.db import models
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -21,15 +20,14 @@ class RequestViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
 
     def get_queryset(self):
-        """Return requests visible to requester, approver, or assigned warehouse manager."""
+        """Return all requests for elevated roles; otherwise only requester's own."""
         user = self.request.user
+        queryset = ProductRequest.objects.all()
+        if not user.is_manager():
+            queryset = queryset.filter(requested_by=user)
+
         return (
-            ProductRequest.objects
-            .filter(
-                models.Q(requested_by=user)
-                | models.Q(approver=user)
-                | models.Q(warehouse__manager=user)
-            )
+            queryset
             .select_related('requested_by', 'approver', 'approved_by', 'warehouse')
             .prefetch_related('items__product', 'events__actor')
             .distinct()

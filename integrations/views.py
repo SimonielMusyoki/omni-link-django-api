@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta, timezone as dt_timezone
 
-from django.conf import settings
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import status, viewsets, filters
@@ -9,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
+from authentication.permissions import IsAdminOrOwner
 
 from .models import Integration
 from .serializers import IntegrationSerializer
@@ -18,6 +18,7 @@ from integrations.services import (
     import_shopify_products,
     verify_shopify_webhook_hmac,
     process_shopify_webhook_event,
+    resolve_shopify_integration_by_shop_domain,
 )
 
 
@@ -34,7 +35,7 @@ class IntegrationViewSet(viewsets.ModelViewSet):
         )
     )
     serializer_class = IntegrationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['warehouse', 'type', 'status', 'market']
     search_fields = ['name', 'type', 'market']
@@ -176,11 +177,26 @@ class ShopifyWebhookView(APIView):
         shop_domain = request.headers.get('X-Shopify-Shop-Domain', '')
         hmac_header = request.headers.get('X-Shopify-Hmac-Sha256', '')
         webhook_id = (request.headers.get('X-Shopify-Webhook-Id') or '').strip()
-        secret = getattr(settings, 'SHOPIFY_WEBHOOK_SECRET', '')
+
+        if not shop_domain:
+            return Response(
+                {'detail': 'Missing Shopify shop domain header.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        integration = resolve_shopify_integration_by_shop_domain(shop_domain)
+        if not integration:
+            return Response(
+                {'detail': 'No Shopify integration found for this shop domain.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        creds = getattr(integration, 'shopify_credentials', None)
+        secret = (getattr(creds, 'api_secret', '') or '').strip()
 
         if not secret:
             return Response(
-                {'detail': 'Shopify webhook secret is not configured.'},
+                {'detail': 'Shopify API secret is not configured for this integration.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 

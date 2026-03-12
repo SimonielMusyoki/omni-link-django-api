@@ -2,6 +2,7 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient, APITestCase
 from rest_framework import status
+from authentication.models import UserRole
 
 User = get_user_model()
 
@@ -79,4 +80,93 @@ class AuthenticationTest(APITestCase):
         # Verify new password works
         user.refresh_from_db()
         self.assertTrue(user.check_password('NewPass123!'))
+
+    def test_profile_update_cannot_change_own_role(self):
+        user = User.objects.create_user(
+            email='self@test.com',
+            password='OldPass123!',
+            role=UserRole.USER,
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.patch(
+            '/api/auth/profile/',
+            {
+                'first_name': 'Updated',
+                'role': UserRole.ADMIN,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        self.assertEqual(user.first_name, 'Updated')
+        self.assertEqual(user.role, UserRole.USER)
+
+
+class UserRoleModelTests(TestCase):
+    def test_owner_role_has_full_access_helpers(self):
+        owner = User.objects.create_user(
+            email='owner@test.com',
+            password='OwnerPass123!',
+            role=UserRole.OWNER,
+        )
+
+        self.assertTrue(owner.is_owner())
+        self.assertTrue(owner.is_admin())
+        self.assertTrue(owner.is_manager())
+
+
+class UserManagementPermissionTests(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.owner = User.objects.create_user(
+            email='owner@test.com',
+            password='OwnerPass123!',
+            role=UserRole.OWNER,
+        )
+        self.admin = User.objects.create_user(
+            email='admin@test.com',
+            password='AdminPass123!',
+            role=UserRole.ADMIN,
+        )
+        self.manager = User.objects.create_user(
+            email='manager@test.com',
+            password='ManagerPass123!',
+            role=UserRole.MANAGER,
+        )
+        self.target = User.objects.create_user(
+            email='target@test.com',
+            password='TargetPass123!',
+        )
+
+    def test_owner_can_list_users(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.get('/api/auth/users/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_admin_can_update_users(self):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.patch(
+            f'/api/auth/users/{self.target.pk}/',
+            {'role': UserRole.MANAGER},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.target.refresh_from_db()
+        self.assertEqual(self.target.role, UserRole.MANAGER)
+
+    def test_manager_can_list_users(self):
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.get('/api/auth/users/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_manager_cannot_update_users(self):
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.patch(
+            f'/api/auth/users/{self.target.pk}/',
+            {'role': UserRole.USER},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 

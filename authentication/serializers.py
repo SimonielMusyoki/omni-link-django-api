@@ -67,11 +67,19 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating user profile"""
+    """Serializer for admin/owner user management updates."""
 
     class Meta:
         model = User
         fields = ('first_name', 'last_name', 'profile_picture', 'role')
+
+
+class UserSelfUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for authenticated users updating their own profile."""
+
+    class Meta:
+        model = User
+        fields = ('first_name', 'last_name', 'profile_picture')
 
 
 class ChangePasswordSerializer(serializers.Serializer):

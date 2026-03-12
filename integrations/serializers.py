@@ -9,7 +9,7 @@ from .models import (
 
 
 REQUIRED_CREDENTIAL_FIELDS = {
-    Integration.IntegrationType.SHOPIFY: {'store_url', 'access_token'},
+    Integration.IntegrationType.SHOPIFY: {'store_url', 'access_token', 'api_key', 'api_secret'},
     Integration.IntegrationType.ODOO: {
         'server_url',
         'database_url',
@@ -68,6 +68,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
             return {
                 'store_url': creds.store_url,
                 'api_version': creds.api_version,
+                'has_api_key': bool(creds.api_key),
+                'has_api_secret': bool(creds.api_secret),
                 'has_access_token': bool(creds.access_token),
             }
 
@@ -155,6 +157,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 defaults={
                     'store_url': credentials['store_url'],
                     'access_token': credentials['access_token'],
+                    'api_key': credentials['api_key'],
+                    'api_secret': credentials['api_secret'],
                     'api_version': credentials.get('api_version', '2024-01'),
                 },
             )

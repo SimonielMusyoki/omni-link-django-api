@@ -1,27 +1,35 @@
 from rest_framework import permissions
-from authentication.models import UserRole
+
+
+def _authenticated_user(request):
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return None
+    return user
 
 
 class IsAdmin(permissions.BasePermission):
-    """Permission check for admin users"""
+    """Permission check for admin or owner users."""
 
     def has_permission(self, request, view):
-        return (
-            request.user and
-            request.user.is_authenticated and
-            request.user.is_admin()
-        )
+        user = _authenticated_user(request)
+        return bool(user and user.is_admin())
+
+
+class IsAdminOrOwner(IsAdmin):
+    """Explicit alias for admin/owner-only endpoints."""
 
 
 class IsManager(permissions.BasePermission):
-    """Permission check for manager users and above"""
+    """Permission check for manager users and above."""
 
     def has_permission(self, request, view):
-        return (
-            request.user and
-            request.user.is_authenticated and
-            request.user.is_manager()
-        )
+        user = _authenticated_user(request)
+        return bool(user and user.is_manager())
+
+
+class IsManagerOrAbove(IsManager):
+    """Explicit alias for manager/admin/owner endpoints."""
 
 
 class IsOwnerOrAdmin(permissions.BasePermission):
@@ -44,11 +52,8 @@ class IsActiveUser(permissions.BasePermission):
     """Permission check for active users"""
 
     def has_permission(self, request, view):
-        return (
-            request.user and
-            request.user.is_authenticated and
-            request.user.is_active
-        )
+        user = _authenticated_user(request)
+        return bool(user and user.is_active)
 
 
 class RoleBasedPermission(permissions.BasePermission):
@@ -58,8 +63,12 @@ class RoleBasedPermission(permissions.BasePermission):
     """
 
     def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
+        user = _authenticated_user(request)
+        if not user:
             return False
+
+        if user.is_owner() or user.is_superuser:
+            return True
 
         # Get required roles from view
         required_roles = getattr(view, 'required_roles', None)
@@ -69,5 +78,5 @@ class RoleBasedPermission(permissions.BasePermission):
             return True
 
         # Check if user's role is in required roles
-        return request.user.role in required_roles or request.user.is_superuser
+        return user.role in required_roles or user.is_superuser
 

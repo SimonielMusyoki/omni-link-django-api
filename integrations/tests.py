@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import json
 
-from django.test import override_settings
+from authentication.models import UserRole
 from integrations.models import (
     Integration,
     QuickBooksCredentials,
@@ -26,6 +26,7 @@ class IntegrationApiTests(APITestCase):
         self.user = User.objects.create_user(
             email='owner@example.com',
             password='secret123',
+            role=UserRole.OWNER,
         )
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
@@ -112,6 +113,8 @@ class IntegrationApiTests(APITestCase):
             'credentials': {
                 'store_url': 'https://shop.example.com',
                 'access_token': 'token-1',
+                'api_key': 'shopify-api-key',
+                'api_secret': 'shopify-api-secret',
             },
         }
 
@@ -131,6 +134,8 @@ class IntegrationApiTests(APITestCase):
                 'credentials': {
                     'store_url': 'https://shop.example.com',
                     'access_token': 'token-1',
+                    'api_key': 'shopify-api-key',
+                    'api_secret': 'shopify-api-secret',
                 },
             },
             format='json',
@@ -202,6 +207,25 @@ class IntegrationApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data['success'])
 
+    def test_reject_missing_shopify_api_secret(self):
+        response = self.client.post(
+            '/api/integrations/',
+            {
+                'name': 'Kenya Shopify',
+                'type': 'SHOPIFY',
+                'market': 'Kenya',
+                'credentials': {
+                    'store_url': 'https://kenya-shop.myshopify.com',
+                    'access_token': 'token-1',
+                    'api_key': 'shopify-api-key',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('credentials', response.data)
+
 
 class ShopifyOrderMappingRulesTests(APITestCase):
     def setUp(self):
@@ -243,9 +267,58 @@ class ShopifyOrderMappingRulesTests(APITestCase):
         self.assertEqual(currency, 'NGN')
 
 
-@override_settings(SHOPIFY_WEBHOOK_SECRET='test-webhook-secret')
+class IntegrationPermissionTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email='owner-permissions@example.com',
+            password='secret123',
+            role=UserRole.OWNER,
+        )
+        self.manager = User.objects.create_user(
+            email='manager-permissions@example.com',
+            password='secret123',
+            role=UserRole.MANAGER,
+        )
+        self.owner_client = APIClient()
+        self.owner_client.force_authenticate(user=self.owner)
+        self.manager_client = APIClient()
+        self.manager_client.force_authenticate(user=self.manager)
+        self.warehouse = Warehouse.objects.create(
+            name='Permissions Warehouse',
+            location='Nairobi',
+            address='Nairobi, Kenya',
+            capacity=10000,
+            manager=self.owner,
+        )
+
+    def test_owner_can_manage_integrations(self):
+        response = self.owner_client.post(
+            '/api/integrations/',
+            {
+                'name': 'Owner Shopify',
+                'type': 'SHOPIFY',
+                'market': 'Kenya',
+                'warehouse': self.warehouse.id,
+                'credentials': {
+                    'store_url': 'https://shop.example.com',
+                    'access_token': 'token-1',
+                    'api_key': 'shopify-api-key',
+                    'api_secret': 'shopify-api-secret',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_manager_cannot_manage_integrations(self):
+        response = self.manager_client.get('/api/integrations/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
 class ShopifyWebhookApiTests(APITestCase):
     def setUp(self):
+        self.webhook_secret = 'test-webhook-secret'
         self.user = User.objects.create_user(
             email='manager@example.com',
             password='secret123',
@@ -268,6 +341,8 @@ class ShopifyWebhookApiTests(APITestCase):
             integration=self.integration,
             store_url='https://kenya-shop.myshopify.com',
             access_token='shopify-token',
+            api_key='shopify-api-key',
+            api_secret=self.webhook_secret,
             api_version='2024-01',
         )
 
@@ -282,7 +357,7 @@ class ShopifyWebhookApiTests(APITestCase):
         raw = json.dumps(payload).encode('utf-8')
         signature = base64.b64encode(
             hmac.new(
-                b'test-webhook-secret',
+                self.webhook_secret.encode('utf-8'),
                 raw,
                 hashlib.sha256,
             ).digest()
@@ -339,7 +414,7 @@ class ShopifyWebhookApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(Order.objects.count(), 1)
         order = Order.objects.get(shopify_order_id='99001')
-        self.assertEqual(order.market, 'Kenya')
+        self.assertEqual(order.market.name, 'Kenya')
         self.assertEqual(order.currency, 'KES')
         self.assertTrue(
             ShopifyWebhookDelivery.objects.filter(
@@ -389,7 +464,7 @@ class ShopifyWebhookApiTests(APITestCase):
         raw = json.dumps(payload).encode('utf-8')
         signature = base64.b64encode(
             hmac.new(
-                b'test-webhook-secret',
+                self.webhook_secret.encode('utf-8'),
                 raw,
                 hashlib.sha256,
             ).digest()

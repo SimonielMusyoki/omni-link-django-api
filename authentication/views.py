@@ -4,19 +4,17 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import get_user_model
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
-from django.conf import settings
 import requests
 
 from .serializers import (
     UserRegistrationSerializer,
     UserSerializer,
     UserUpdateSerializer,
+    UserSelfUpdateSerializer,
     ChangePasswordSerializer,
     GoogleLoginSerializer
 )
-from .permissions import IsAdmin, IsOwnerOrAdmin
+from .permissions import IsAdminOrOwner, IsOwnerOrAdmin
 
 User = get_user_model()
 
@@ -166,7 +164,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
 
     def get_serializer_class(self):
         if self.request.method == 'PUT' or self.request.method == 'PATCH':
-            return UserUpdateSerializer
+            return UserSelfUpdateSerializer
         return UserSerializer
 
 
@@ -190,17 +188,27 @@ class ChangePasswordView(APIView):
 
 
 class UserListView(generics.ListAPIView):
-    """View for listing all users (Admin only)"""
+    """View for listing all users (Admin/Owner only)."""
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrOwner]
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.IsAuthenticated()]
+        return [permission() for permission in self.permission_classes]
 
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """View for user details (Admin only)"""
+    """View for user details (Admin/Owner only)."""
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrOwner]
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.IsAuthenticated()]
+        return [permission() for permission in self.permission_classes]
 
     def get_serializer_class(self):
         if self.request.method in ['PUT', 'PATCH']:

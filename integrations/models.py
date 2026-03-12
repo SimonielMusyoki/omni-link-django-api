@@ -62,6 +62,8 @@ class ShopifyCredentials(models.Model):
     )
     store_url = models.URLField()
     access_token = models.CharField(max_length=512)
+    api_key = models.CharField(max_length=255, blank=True, default='')
+    api_secret = models.CharField(max_length=512, blank=True, default='')
     api_version = models.CharField(max_length=20, default='2024-01')
 
     def __str__(self):

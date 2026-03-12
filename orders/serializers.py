@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Order, OrderItem
+from products.models import Market
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -24,6 +25,8 @@ class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     warehouse_name = serializers.CharField(source='warehouse.name', read_only=True, allow_null=True)
     owner_email = serializers.CharField(source='owner.email', read_only=True)
+    market_name = serializers.CharField(source='market.name', read_only=True)
+    currency = serializers.CharField(read_only=True)
     total_items = serializers.IntegerField(read_only=True)
     is_paid = serializers.BooleanField(read_only=True)
     is_fulfilled = serializers.BooleanField(read_only=True)
@@ -35,7 +38,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'id', 'order_number', 'shopify_order_id', 'shopify_order_number',
 
             # Market & Currency
-            'market', 'currency', 'exchange_rate',
+            'market', 'market_name', 'currency', 'exchange_rate',
 
             # Customer
             'customer_email', 'customer_name', 'customer_phone', 'shopify_customer_id',
@@ -89,6 +92,7 @@ class OrderCreateUpdateSerializer(serializers.Serializer):
     order_number = serializers.CharField(max_length=100)
     customer_email = serializers.EmailField()
     customer_name = serializers.CharField(max_length=255)
+    market = serializers.PrimaryKeyRelatedField(queryset=Market.objects.all())
     status = serializers.ChoiceField(choices=Order.STATUS_CHOICES)
     order_channel = serializers.ChoiceField(
         choices=Order.ORDER_CHANNEL_CHOICES,

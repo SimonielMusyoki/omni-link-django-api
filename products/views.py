@@ -18,6 +18,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
+from authentication.permissions import IsAdminOrOwner, IsManagerOrAbove
 
 from .models import (
     Category,
@@ -52,7 +53,7 @@ class MarketViewSet(viewsets.ModelViewSet):
     """CRUD for markets."""
     queryset = Market.objects.all()
     serializer_class = MarketSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['is_active']
     search_fields = ['name', 'code']
@@ -93,14 +94,19 @@ class WarehouseViewSet(viewsets.ModelViewSet):
         .annotate(annotated_total_stock=Coalesce(Sum('inventory_items__quantity'), Value(0)))
     )
     serializer_class = WarehouseSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsManagerOrAbove]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'location']
     ordering_fields = ['name', 'created_at']
     ordering = ['-created_at']
 
+    def get_permissions(self):
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [IsAuthenticated()]
+        return [permission() for permission in self.permission_classes]
+
     def perform_create(self, serializer):
-        serializer.save(manager=self.request.user)
+        serializer.save(manager=serializer.validated_data.get('manager', self.request.user))
 
     # ---- custom actions ---------------------------------------------------
 
@@ -326,7 +332,7 @@ class BundleItemViewSet(viewsets.ModelViewSet):
 
     queryset = ProductBundle.objects.select_related('bundle', 'component').all()
     serializer_class = BundleItemSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['bundle', 'component']
     ordering = ['bundle', 'component']
@@ -363,7 +369,7 @@ class InventoryViewSet(
         .all()
     )
     serializer_class = InventorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsManagerOrAbove]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['product', 'warehouse']
     ordering_fields = ['quantity', 'updated_at']
@@ -448,7 +454,7 @@ class InventoryTransferViewSet(
         .all()
     )
     serializer_class = InventoryTransferSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsManagerOrAbove]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['product', 'status', 'from_warehouse', 'to_warehouse']
     ordering_fields = ['created_at', 'quantity']

@@ -17,7 +17,7 @@ class OrderAdmin(admin.ModelAdmin):
         'delivery_status', 'is_cash_on_delivery', 'created_at'
     )
     list_filter = (
-        'market', 'currency', 'order_channel', 'status', 'fulfillment_status',
+        'market', 'order_channel', 'status', 'fulfillment_status',
         'payment_status', 'delivery_status', 'payment_method',
         'is_cash_on_delivery', 'warehouse', 'created_at'
     )
@@ -30,7 +30,7 @@ class OrderAdmin(admin.ModelAdmin):
         'order_number', 'shopify_order_id', 'created_at', 'updated_at',
         'shopify_created_at', 'shopify_updated_at', 'confirmed_at',
         'fulfilled_at', 'shipped_at', 'delivered_at', 'cancelled_at',
-        'owner', 'total_items', 'is_paid', 'is_fulfilled'
+        'owner', 'total_items', 'is_paid', 'is_fulfilled', 'currency_display'
     )
     inlines = [OrderItemInline]
 
@@ -42,7 +42,7 @@ class OrderAdmin(admin.ModelAdmin):
             )
         }),
         ('Market & Currency', {
-            'fields': ('market', 'currency', 'exchange_rate')
+            'fields': ('market', 'currency_display', 'exchange_rate')
         }),
         ('Customer Details', {
             'fields': (
@@ -116,6 +116,10 @@ class OrderAdmin(admin.ModelAdmin):
         """Display total items in admin"""
         return obj.total_items
     total_items.short_description = 'Total Items'
+
+    def currency_display(self, obj):
+        return obj.currency
+    currency_display.short_description = 'Currency'
 
     def is_paid(self, obj):
         """Display payment status as boolean"""

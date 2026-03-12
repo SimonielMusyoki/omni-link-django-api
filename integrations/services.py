@@ -15,7 +15,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from orders.models import Order, OrderItem
-from products.models import Product, Category, ProductBundle
+from products.models import Product, Category, ProductBundle, Market
 
 from .models import Integration, ShopifyWebhookDelivery
 
@@ -220,6 +220,37 @@ def _parse_datetime(value: Any):
         return None
 
 
+def _resolve_market_for_order(market_name: str, currency: str) -> Market:
+    normalized_name = (market_name or 'Unknown').strip() or 'Unknown'
+    normalized_currency = (currency or 'USD').strip().upper() or 'USD'
+
+    market = Market.objects.filter(name__iexact=normalized_name).first()
+    if market:
+        return market
+
+    market = Market.objects.filter(code__iexact=normalized_name).first()
+    if market:
+        return market
+
+    code = ''.join(ch for ch in normalized_name.upper() if ch.isalpha())[:3] or 'MKT'
+    candidate = code
+    i = 1
+    while Market.objects.filter(code=candidate).exists():
+        suffix = str(i)
+        candidate = f"{code[: max(1, 3 - len(suffix))]}{suffix}"
+        i += 1
+
+    market, _ = Market.objects.get_or_create(
+        name=normalized_name,
+        defaults={
+            'code': candidate,
+            'currency': normalized_currency,
+            'is_active': True,
+        },
+    )
+    return market
+
+
 def _fetch_shopify_orders(
     integration: Integration,
     created_at_min: datetime,
@@ -296,6 +327,11 @@ def _resolve_shopify_integration(shop_domain: str) -> Integration | None:
     return None
 
 
+def resolve_shopify_integration_by_shop_domain(shop_domain: str) -> Integration | None:
+    """Public helper for webhook views to resolve integration by shop domain."""
+    return _resolve_shopify_integration(shop_domain)
+
+
 def verify_shopify_webhook_hmac(raw_body: bytes, hmac_header: str, secret: str) -> bool:
     if not raw_body or not hmac_header or not secret:
         return False
@@ -345,12 +381,12 @@ def _upsert_shopify_order_from_payload(
         return None, False, True
 
     market, currency = _normalize_market_and_currency(integration, raw)
+    market_obj = _resolve_market_for_order(market, currency)
     payment_method, is_cod, gateway = _resolve_payment_method(raw)
 
     defaults = {
         "shopify_order_number": str(raw.get("order_number") or raw.get("name") or ""),
-        "market": market,
-        "currency": currency,
+        "market": market_obj,
         "customer_email": raw.get("email") or "",
         "customer_name": (
             f"{(raw.get('customer') or {}).get('first_name', '')} "
