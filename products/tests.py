@@ -40,7 +40,7 @@ class _SetupMixin:
 
     def _setup(self):
         self.user = User.objects.create_user(
-            email='test@example.com', password='testpass123'
+            email='test@example.com', password='testpass123', role=UserRole.MANAGER
         )
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
@@ -423,6 +423,29 @@ class WarehouseAPITest(APITestCase, _SetupMixin):
         r = self.client.delete(f'/api/warehouses/{self.warehouse_b.pk}/')
         self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
 
+    def test_regular_user_can_read_warehouses(self):
+        basic_user = User.objects.create_user(
+            email='basic-warehouse@test.com',
+            password='testpass123',
+            role=UserRole.USER,
+        )
+        self.client.force_authenticate(user=basic_user)
+        r = self.client.get('/api/warehouses/')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+    def test_regular_user_cannot_create_warehouse(self):
+        basic_user = User.objects.create_user(
+            email='basic-warehouse-write@test.com',
+            password='testpass123',
+            role=UserRole.USER,
+        )
+        self.client.force_authenticate(user=basic_user)
+        r = self.client.post('/api/warehouses/', {
+            'name': 'Warehouse C', 'location': 'CHI',
+            'address': '300 Elm St', 'capacity': 1000,
+        })
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
     # -- custom actions ----
 
     def test_inventory_action_empty(self):
@@ -636,6 +659,16 @@ class InventoryAPITest(APITestCase, _SetupMixin):
         })
         self.assertEqual(r.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
+    def test_regular_user_cannot_access_inventory(self):
+        basic_user = User.objects.create_user(
+            email='basic-inventory@test.com',
+            password='testpass123',
+            role=UserRole.USER,
+        )
+        self.client.force_authenticate(user=basic_user)
+        r = self.client.get('/api/inventory/')
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # API TESTS – TRANSFERS
@@ -730,6 +763,16 @@ class TransferAPITest(APITestCase, _SetupMixin):
         })
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertEqual(r.data['notes'], 'Seasonal rebalancing')
+
+    def test_regular_user_cannot_access_transfers(self):
+        basic_user = User.objects.create_user(
+            email='basic-transfer@test.com',
+            password='testpass123',
+            role=UserRole.USER,
+        )
+        self.client.force_authenticate(user=basic_user)
+        r = self.client.get('/api/transfers/')
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

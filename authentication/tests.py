@@ -156,8 +156,17 @@ class UserManagementPermissionTests(APITestCase):
         self.target.refresh_from_db()
         self.assertEqual(self.target.role, UserRole.MANAGER)
 
-    def test_manager_cannot_manage_users(self):
+    def test_manager_can_list_users(self):
         self.client.force_authenticate(user=self.manager)
         response = self.client.get('/api/auth/users/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_manager_cannot_update_users(self):
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.patch(
+            f'/api/auth/users/{self.target.pk}/',
+            {'role': UserRole.USER},
+            format='json',
+        )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 

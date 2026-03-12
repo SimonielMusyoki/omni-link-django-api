@@ -26,10 +26,8 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """Return orders for current user with optional date filtering"""
-        user = self.request.user
         queryset = (
             Order.objects
-            .filter(owner=user)
             .select_related('warehouse', 'owner', 'market')
             .prefetch_related(
                 Prefetch('items', queryset=OrderItem.objects.select_related('product'))

@@ -193,12 +193,22 @@ class UserListView(generics.ListAPIView):
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwner]
 
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.IsAuthenticated()]
+        return [permission() for permission in self.permission_classes]
+
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     """View for user details (Admin/Owner only)."""
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwner]
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.IsAuthenticated()]
+        return [permission() for permission in self.permission_classes]
 
     def get_serializer_class(self):
         if self.request.method in ['PUT', 'PATCH']:

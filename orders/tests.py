@@ -146,6 +146,31 @@ class OrderAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 2)
 
+    def test_authenticated_user_can_view_other_users_orders(self):
+        other_user = User.objects.create_user(email='other-order@test.com', password='testpass123')
+        Order.objects.create(
+            order_number='ORD999',
+            shopify_order_id='SHP-999',
+            shopify_order_number='1999',
+            market=self.market,
+            customer_email='other-customer@test.com',
+            customer_name='Other Customer',
+            subtotal_price=Decimal('50.00'),
+            total_tax=Decimal('0.00'),
+            shipping_price=Decimal('0.00'),
+            discount_amount=Decimal('0.00'),
+            total_amount=Decimal('50.00'),
+            shipping_address_line1='123 Other St',
+            shipping_city='Nairobi',
+            shipping_country='Kenya',
+            warehouse=self.warehouse,
+            owner=other_user,
+        )
+
+        response = self.client.get('/api/orders/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 1)
+
     def test_list_orders_query_count(self):
         self._create_order(idx=1)
         self._create_order(idx=2)
