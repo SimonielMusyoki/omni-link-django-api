@@ -113,6 +113,19 @@ jobs:
           fi
           "${VENV_DIR}/bin/python" -m pip install --quiet --upgrade pip wheel setuptools
 
+          echo "[bootstrap] Ensuring Redis is installed and running (Celery broker)..."
+          if ! command -v redis-server &>/dev/null; then
+            echo "[bootstrap] Installing Redis..."
+            sudo apt-get update -qq && sudo apt-get install -y -qq redis-server
+          fi
+          sudo systemctl enable redis-server --quiet
+          sudo systemctl start redis-server
+          redis-cli ping | grep -q PONG && echo "  ✅ Redis is up" || { echo "❌ Redis failed to start"; exit 1; }
+
+          echo "[bootstrap] Ensuring Celery log directory exists..."
+          sudo mkdir -p /var/log/celery
+          sudo chown "${DEPLOY_USER}:${DEPLOY_GROUP}" /var/log/celery
+
           echo "[bootstrap] Ensuring production env file exists..."
           if [ ! -f "${ENV_FILE}" ]; then
             {
@@ -164,7 +177,10 @@ jobs:
 
           sudo cp "${PROJECT_DIR}/deploy/systemd/gunicorn.service" \
                   "/etc/systemd/system/omnilink-gunicorn.service"
+          sudo cp "${PROJECT_DIR}/deploy/systemd/celery.service" \
+                  "/etc/systemd/system/omnilink-celery.service"
           sudo systemctl daemon-reload
+          sudo systemctl enable omnilink-celery --quiet
 
           sudo cp "${PROJECT_DIR}/deploy/nginx/default.conf" \
                   "/etc/nginx/sites-available/omnilink"
@@ -200,8 +216,9 @@ jobs:
           "${VENV_DIR}/bin/python" manage.py collectstatic --noinput --clear
 
           # ── Restart services ─────────────────────────────────────────────────
-          echo "[6/6] Restarting Gunicorn and reloading Nginx..."
+          echo "[6/6] Restarting Gunicorn, Celery worker, and reloading Nginx..."
           sudo systemctl restart omnilink-gunicorn
+          sudo systemctl restart omnilink-celery
           sudo systemctl reload nginx
 
           # ── Health check ─────────────────────────────────────────────────────
