@@ -11,12 +11,14 @@ class ProductRequest(models.Model):
     PENDING = 'PENDING'
     APPROVED = 'APPROVED'
     READY_TO_COLLECT = 'READY_TO_COLLECT'
+    COLLECTED = 'COLLECTED'
     REJECTED = 'REJECTED'
 
     STATUS_CHOICES = [
         (PENDING, 'Pending'),
         (APPROVED, 'Approved'),
         (READY_TO_COLLECT, 'Ready to Collect'),
+        (COLLECTED, 'Collected'),
         (REJECTED, 'Rejected'),
     ]
 
@@ -30,6 +32,7 @@ class ProductRequest(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     ready_at = models.DateTimeField(null=True, blank=True)
+    collected_at = models.DateTimeField(null=True, blank=True)
     approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='requests_approved')
     rejection_reason = models.TextField(blank=True)
 
@@ -53,6 +56,7 @@ class ProductRequestEvent(models.Model):
     REQUEST_APPROVED = 'REQUEST_APPROVED'
     REQUEST_REJECTED = 'REQUEST_REJECTED'
     REQUEST_READY_TO_COLLECT = 'REQUEST_READY_TO_COLLECT'
+    REQUEST_COLLECTED = 'REQUEST_COLLECTED'
     EMAIL_TO_APPROVER_SENT = 'EMAIL_TO_APPROVER_SENT'
     EMAIL_TO_MANAGER_SENT = 'EMAIL_TO_MANAGER_SENT'
     EMAIL_TO_REQUESTER_SENT = 'EMAIL_TO_REQUESTER_SENT'
@@ -62,6 +66,7 @@ class ProductRequestEvent(models.Model):
         (REQUEST_APPROVED, 'Request Approved'),
         (REQUEST_REJECTED, 'Request Rejected'),
         (REQUEST_READY_TO_COLLECT, 'Request Ready to Collect'),
+        (REQUEST_COLLECTED, 'Request Collected'),
         (EMAIL_TO_APPROVER_SENT, 'Approver Email Sent'),
         (EMAIL_TO_MANAGER_SENT, 'Manager Email Sent'),
         (EMAIL_TO_REQUESTER_SENT, 'Requester Email Sent'),
@@ -93,6 +98,12 @@ class ProductRequestEvent(models.Model):
             'description': 'Items are ready for collection.',
             'color': '#0ea5e9',
             'icon_name': 'package-check',
+        },
+        REQUEST_COLLECTED: {
+            'title': 'Collected',
+            'description': 'Items were collected by the requester.',
+            'color': '#10b981',
+            'icon_name': 'circle-check-big',
         },
         EMAIL_TO_APPROVER_SENT: {
             'title': 'Approval Email Sent',

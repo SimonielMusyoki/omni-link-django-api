@@ -114,3 +114,25 @@ def mark_ready_to_collect(*, req: ProductRequest, actor):
 
     transaction.on_commit(lambda: _enqueue_task_safely(send_request_ready_to_collect_to_requester, req.id))
     return req
+
+
+@transaction.atomic
+def collect_request(*, req: ProductRequest, actor):
+    """Mark a READY_TO_COLLECT request as COLLECTED (requester has picked up the items)."""
+    if req.status != ProductRequest.READY_TO_COLLECT:
+        raise ValidationError(
+            f'Only requests with status READY_TO_COLLECT can be marked as collected '
+            f'(current status: {req.status}).'
+        )
+
+    req.status = ProductRequest.COLLECTED
+    req.collected_at = timezone.now()
+    req.save(update_fields=['status', 'collected_at', 'updated_at'])
+    _log_event(
+        req=req,
+        event_type=ProductRequestEvent.REQUEST_COLLECTED,
+        actor=actor,
+        note=f'{actor.email} confirmed collection of this request.',
+    )
+    return req
+

@@ -76,3 +76,17 @@ class RequestViewSet(viewsets.ModelViewSet):
             return Response({'error': str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(ProductRequestSerializer(req).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def collect(self, request, pk=None):
+        """Mark a ready-to-collect request as collected (requester has picked up items)"""
+        req = self.get_object()
+        try:
+            req = services.collect_request(req=req, actor=request.user)
+        except PermissionDenied as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ValidationError as exc:
+            return Response({'error': str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(ProductRequestSerializer(req).data, status=status.HTTP_200_OK)
+
