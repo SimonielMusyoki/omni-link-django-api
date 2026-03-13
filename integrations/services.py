@@ -8,6 +8,7 @@ from xmlrpc import client as xmlrpc_client
 import base64
 import hashlib
 import hmac
+import logging
 
 import requests
 from django.contrib.auth import get_user_model
@@ -18,6 +19,8 @@ from orders.models import Order, OrderItem
 from products.models import Product, Category, ProductBundle, Market
 
 from .models import Integration, ShopifyWebhookDelivery
+
+logger = logging.getLogger(__name__)
 
 
 def _test_shopify(integration: Integration):
@@ -333,16 +336,46 @@ def resolve_shopify_integration_by_shop_domain(shop_domain: str) -> Integration 
 
 
 def verify_shopify_webhook_hmac(raw_body: bytes, hmac_header: str, secret: str) -> bool:
-    if not raw_body or not hmac_header or not secret:
+    """Verify a Shopify webhook HMAC-SHA256 signature.
+
+    ``secret`` must be the Shopify *Webhooks signing secret*, which is found in:
+    - **Admin-created webhooks**: Shopify Admin → Settings → Notifications →
+      Webhooks → "Your webhooks will be signed with …"
+    - **App webhooks (Partners / Custom apps)**: Partner Dashboard → App →
+      Client credentials → Client secret  (same value as ``api_secret`` /
+      API Secret Key).
+
+    These two secrets are DIFFERENT values for the same store; make sure you
+    use the one that matches how the webhook subscription was registered.
+    """
+    if not raw_body:
+        logger.warning('verify_shopify_webhook_hmac: raw_body is empty — cannot verify.')
+        return False
+    if not hmac_header:
+        logger.warning('verify_shopify_webhook_hmac: X-Shopify-Hmac-Sha256 header is missing.')
+        return False
+    if not secret:
+        logger.warning('verify_shopify_webhook_hmac: api_secret is blank — cannot verify.')
         return False
 
     digest = hmac.new(
-        secret.encode("utf-8"),
+        secret.encode('utf-8'),
         raw_body,
         hashlib.sha256,
     ).digest()
-    computed_hmac = base64.b64encode(digest).decode("utf-8")
-    return hmac.compare_digest(computed_hmac, hmac_header)
+    computed_hmac = base64.b64encode(digest).decode('utf-8')
+
+    match = hmac.compare_digest(computed_hmac, hmac_header)
+    if not match:
+        logger.warning(
+            'verify_shopify_webhook_hmac: mismatch '
+            '(body_len=%d, computed[0:8]=%r, received[0:8]=%r). '
+            'Check that api_secret is the correct Shopify Webhooks signing secret.',
+            len(raw_body),
+            computed_hmac[:8],
+            hmac_header[:8],
+        )
+    return match
 
 
 def _resolve_owner_for_integration(integration: Integration):

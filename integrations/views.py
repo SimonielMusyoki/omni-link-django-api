@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.utils import timezone
@@ -9,6 +10,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from authentication.permissions import IsAdminOrOwner
+
+logger = logging.getLogger(__name__)
 
 from .models import Integration
 from .serializers import IntegrationSerializer
@@ -172,13 +175,19 @@ class ShopifyWebhookView(APIView):
     topic = None
 
     def post(self, request, *args, **kwargs):
+        # Read and cache the raw body FIRST, before DRF or any middleware can
+        # consume the WSGI input stream.  This must be the very first line.
+        raw_body: bytes = request.body
+
         configured_topic = kwargs.get('topic') or self.topic
         webhook_topic = request.headers.get('X-Shopify-Topic') or configured_topic
-        shop_domain = request.headers.get('X-Shopify-Shop-Domain', '')
-        hmac_header = request.headers.get('X-Shopify-Hmac-Sha256', '')
+        shop_domain = request.headers.get('X-Shopify-Shop-Domain', '').strip()
+        # Strip to guard against invisible whitespace from proxies/load-balancers.
+        hmac_header = request.headers.get('X-Shopify-Hmac-Sha256', '').strip()
         webhook_id = (request.headers.get('X-Shopify-Webhook-Id') or '').strip()
 
         if not shop_domain:
+            logger.warning('Shopify webhook received without X-Shopify-Shop-Domain header.')
             return Response(
                 {'detail': 'Missing Shopify shop domain header.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -186,6 +195,9 @@ class ShopifyWebhookView(APIView):
 
         integration = resolve_shopify_integration_by_shop_domain(shop_domain)
         if not integration:
+            logger.warning(
+                'Shopify webhook received for unknown shop domain: %s', shop_domain
+            )
             return Response(
                 {'detail': 'No Shopify integration found for this shop domain.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -195,12 +207,30 @@ class ShopifyWebhookView(APIView):
         secret = (getattr(creds, 'api_secret', '') or '').strip()
 
         if not secret:
+            logger.error(
+                'Shopify webhook received for shop %s (integration id=%s) but '
+                'api_secret is not configured. Update the integration credentials '
+                'with the Shopify Client/Webhook Signing Secret.',
+                shop_domain,
+                integration.id,
+            )
             return Response(
                 {'detail': 'Shopify API secret is not configured for this integration.'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        if not verify_shopify_webhook_hmac(request.body, hmac_header, secret):
+        if not verify_shopify_webhook_hmac(raw_body, hmac_header, secret):
+            logger.warning(
+                'Shopify webhook HMAC verification failed for shop %s, topic %s '
+                '(body_len=%d, hmac_header_present=%s). '
+                'Ensure api_secret matches the Shopify Webhooks Signing Secret '
+                '(Admin → Settings → Notifications → Webhooks) or the app\'s '
+                'Client Secret (Partner Dashboard → App → Client credentials).',
+                shop_domain,
+                webhook_topic,
+                len(raw_body),
+                bool(hmac_header),
+            )
             return Response(
                 {'detail': 'Invalid Shopify webhook signature.'},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -226,6 +256,10 @@ class ShopifyWebhookView(APIView):
                 webhook_id=webhook_id,
             )
         except ValueError as exc:
+            logger.warning(
+                'Shopify webhook processing error for shop %s, topic %s: %s',
+                shop_domain, webhook_topic, exc,
+            )
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({'status': 'accepted', **result}, status=status.HTTP_200_OK)
