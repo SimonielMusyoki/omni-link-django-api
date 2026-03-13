@@ -189,9 +189,9 @@ jobs:
           # ── Django management commands ──────────────────────────────────────
           echo "[4/6] Running migrations..."
           cd "${PROJECT_DIR}"
-          set -a
-          source "${ENV_FILE}"
-          set +a
+          # Do not `source` .env.prod in shell. Some valid values for Django
+          # (for example display-name emails) can break POSIX/bash parsing.
+          # `api.settings_production` loads /opt/omnilink/.env.prod directly.
           export DJANGO_SETTINGS_MODULE=api.settings_production
 
           "${VENV_DIR}/bin/python" manage.py migrate --noinput
