@@ -14,6 +14,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator
 from django.core.exceptions import ValidationError
+from decimal import Decimal
 
 User = get_user_model()
 
@@ -143,7 +144,7 @@ class Product(models.Model):
     price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
     )
     reorder_level = models.PositiveIntegerField(
         default=10,

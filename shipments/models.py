@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator
+from decimal import Decimal
 
 User = get_user_model()
 
@@ -52,7 +53,7 @@ class Shipment(models.Model):
         decimal_places=2,
         null=True,
         blank=True,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
         help_text='Weight in kg'
     )
     notes = models.TextField(blank=True, help_text='Additional notes about the shipment')

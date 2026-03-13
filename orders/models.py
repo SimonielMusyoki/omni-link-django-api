@@ -175,14 +175,14 @@ class Order(models.Model):
     subtotal_price = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
         help_text='Subtotal before tax and shipping'
     )
     total_tax = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=Decimal('0.00'),
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
         help_text='Total tax/VAT amount'
     )
     tax_rate = models.DecimalField(
@@ -195,20 +195,20 @@ class Order(models.Model):
         max_digits=12,
         decimal_places=2,
         default=Decimal('0.00'),
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
         help_text='Shipping/delivery fee'
     )
     discount_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=Decimal('0.00'),
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
         help_text='Total discount applied'
     )
     total_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
         help_text='Final total amount (subtotal + tax + shipping - discount)'
     )
 
@@ -333,13 +333,13 @@ class OrderItem(models.Model):
     unit_price = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
         help_text='Price per unit'
     )
     total_price = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
         help_text='Total price for this line item (quantity × unit_price)'
     )
 
@@ -348,7 +348,7 @@ class OrderItem(models.Model):
         max_digits=12,
         decimal_places=2,
         default=Decimal('0.00'),
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
         help_text='Tax amount for this item'
     )
     tax_rate = models.DecimalField(
@@ -363,7 +363,7 @@ class OrderItem(models.Model):
         max_digits=12,
         decimal_places=2,
         default=Decimal('0.00'),
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal('0'))],
         help_text='Discount applied to this item'
     )
 
