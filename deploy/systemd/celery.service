@@ -1,0 +1,32 @@
+[Unit]
+Description=Celery worker for Omni Link Django API
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/opt/omnilink/project
+Environment=DJANGO_SETTINGS_MODULE=api.settings_production
+
+ExecStart=/opt/omnilink/venv/bin/celery \
+    --app=api \
+    worker \
+    --loglevel=info \
+    --concurrency=2 \
+    --max-tasks-per-child=500 \
+    --logfile=/var/log/celery/omnilink_worker.log
+
+ExecReload=/bin/kill -s HUP $MAINPID
+
+Restart=on-failure
+RestartSec=5
+StandardError=journal
+SyslogIdentifier=omnilink-celery
+
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+
