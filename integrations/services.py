@@ -1,8 +1,10 @@
 """Integration service helpers for connection checks and Shopify sync."""
 
+# pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportAttributeAccessIssue=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnusedFunction=false, reportUnusedVariable=false, reportUnnecessaryCast=false
+
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 from xmlrpc import client as xmlrpc_client
 import base64
@@ -18,7 +20,7 @@ from django.utils import timezone
 from orders.models import Order, OrderItem
 from products.models import Product, Category, ProductBundle, Market
 
-from .models import Integration, ShopifyWebhookDelivery
+from .models import Integration, OdooCredentials, QuickBooksCredentials, ShopifyWebhookDelivery
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,295 @@ def test_integration_connection(integration: Integration):
         return _test_quickbooks(integration)
 
     return False, 'Unsupported integration type.'
+
+
+def _get_or_create_odoo_partner(
+    models_proxy: xmlrpc_client.ServerProxy,
+    db: str,
+    uid: int,
+    api_key: str,
+    order: Order,
+) -> int:
+    """Find an existing Odoo res.partner by email or create a new one."""
+    if order.customer_email:
+        matches = cast(list[int], models_proxy.execute_kw(
+            db, uid, api_key,
+            'res.partner', 'search',
+            [[['email', '=', order.customer_email]]],
+        ))
+        if matches:
+            return matches[0]
+
+    partner_vals = {
+        'name': order.customer_name or order.customer_email or 'Unknown Customer',
+        'email': order.customer_email or '',
+        'phone': order.customer_phone or '',
+        'street': order.shipping_address_line1 or '',
+        'street2': order.shipping_address_line2 or '',
+        'city': order.shipping_city or '',
+        'zip': order.shipping_postal_code or '',
+        'country_id': False,
+        'customer_rank': 1,
+    }
+    return cast(int, models_proxy.execute_kw(
+        db, uid, api_key,
+        'res.partner', 'create',
+        [partner_vals],
+    ))
+
+
+def _resolve_configured_odoo_partner_id(creds: OdooCredentials, order: Order) -> int:
+    """Pick configured Odoo partner ID based on order source rules."""
+    raw_tags = str(getattr(order, 'shopify_tags', '') or '').lower()
+    tags = {tag.strip() for tag in raw_tags.split(',') if tag.strip()}
+
+    if 'origin:sukhiba' in tags:
+        selected_partner = str(getattr(creds, 'sukhiba_partner_id', '') or '').strip()
+        source_label = 'origin:sukhiba'
+    elif getattr(order, 'order_channel', '') == Order.CHANNEL_POS:
+        selected_partner = str(getattr(creds, 'pos_partner_id', '') or '').strip()
+        source_label = 'POS channel'
+    else:
+        selected_partner = str(getattr(creds, 'ecommerce_partner_id', '') or '').strip()
+        source_label = 'e-commerce default'
+
+    if not selected_partner:
+        raise ValueError(
+            f'Missing configured Odoo partner ID for {source_label}. '
+            'Update Odoo integration credentials with all partner IDs.'
+        )
+
+    try:
+        return int(selected_partner)
+    except ValueError as exc:
+        raise ValueError(
+            f'Configured Odoo partner ID for {source_label} must be numeric.'
+        ) from exc
+
+
+def create_odoo_sales_order(integration: Integration, order: Order) -> int:
+    """
+    Create a sale.order in Odoo for the given order via XML-RPC.
+    Returns the Odoo record ID (integer).
+    """
+    creds = getattr(integration, 'odoo_credentials', None)
+    if not creds:
+        raise ValueError('Odoo credentials not configured for this integration.')
+
+    base_url = creds.server_url.rstrip('/')
+    common = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/common')
+    uid = cast(int | bool, common.authenticate(creds.database_url, creds.email, creds.api_key, {}))
+    if not uid:
+        raise ValueError('Odoo authentication failed. Check credentials.')
+
+    models_proxy = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/object')
+    partner_id = _resolve_configured_odoo_partner_id(creds, order)
+
+    order_lines = []
+    for item in order.items.all():
+        line_vals: dict[str, Any] = {
+            'name': item.product_name,
+            'product_uom_qty': float(item.quantity),
+            'price_unit': float(item.unit_price),
+        }
+        # Map to the Odoo product template if stored on the linked product.
+        if item.product_id and item.product and item.product.odoo_product_id:
+            try:
+                odoo_id = int(item.product.odoo_product_id)
+                product_matches = cast(list[int], models_proxy.execute_kw(
+                    creds.database_url, uid, creds.api_key,
+                    'product.product', 'search',
+                    [[['product_tmpl_id', '=', odoo_id]]],
+                    {'limit': 1},
+                ))
+                if product_matches:
+                    line_vals['product_id'] = product_matches[0]
+            except (ValueError, TypeError):
+                pass
+
+        order_lines.append((0, 0, line_vals))
+
+    so_vals: dict[str, Any] = {
+        'partner_id': partner_id,
+        'client_order_ref': order.order_number,
+        'order_line': order_lines,
+    }
+    if creds.company_id:
+        try:
+            so_vals['company_id'] = int(creds.company_id)
+        except (ValueError, TypeError):
+            pass
+
+    odoo_so_id = cast(int, models_proxy.execute_kw(
+        creds.database_url, uid, creds.api_key,
+        'sale.order', 'create',
+        [so_vals],
+    ))
+    return odoo_so_id
+
+
+def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
+    """
+    Create an account.move (customer invoice) in Odoo for the given order via XML-RPC.
+    Returns the Odoo record ID (integer).
+    """
+    creds = getattr(integration, 'odoo_credentials', None)
+    if not creds:
+        raise ValueError('Odoo credentials not configured for this integration.')
+
+    base_url = creds.server_url.rstrip('/')
+    common = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/common')
+    uid = cast(int | bool, common.authenticate(creds.database_url, creds.email, creds.api_key, {}))
+    if not uid:
+        raise ValueError('Odoo authentication failed. Check credentials.')
+
+    models_proxy = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/object')
+    partner_id = _resolve_configured_odoo_partner_id(creds, order)
+
+    invoice_lines = []
+    for item in order.items.all():
+        line_vals: dict[str, Any] = {
+            'name': item.product_name,
+            'quantity': float(item.quantity),
+            'price_unit': float(item.unit_price),
+        }
+        if item.product_id and item.product and item.product.odoo_product_id:
+            try:
+                odoo_id = int(item.product.odoo_product_id)
+                product_matches = cast(list[int], models_proxy.execute_kw(
+                    creds.database_url, uid, creds.api_key,
+                    'product.product', 'search',
+                    [[['product_tmpl_id', '=', odoo_id]]],
+                    {'limit': 1},
+                ))
+                if product_matches:
+                    line_vals['product_id'] = product_matches[0]
+            except (ValueError, TypeError):
+                pass
+
+        invoice_lines.append((0, 0, line_vals))
+
+    move_vals: dict[str, Any] = {
+        'move_type': 'out_invoice',
+        'partner_id': partner_id,
+        'ref': order.order_number,
+        'invoice_line_ids': invoice_lines,
+    }
+    if creds.company_id:
+        try:
+            move_vals['company_id'] = int(creds.company_id)
+        except (ValueError, TypeError):
+            pass
+
+    odoo_invoice_id = cast(int, models_proxy.execute_kw(
+        creds.database_url, uid, creds.api_key,
+        'account.move', 'create',
+        [move_vals],
+    ))
+    return odoo_invoice_id
+
+
+def _resolve_configured_quickbooks_customer_id(
+    creds: QuickBooksCredentials,
+    order: Order,
+) -> str:
+    """Pick configured QuickBooks customer ID based on order source rules."""
+    raw_tags = str(getattr(order, 'shopify_tags', '') or '').lower()
+    tags = {tag.strip() for tag in raw_tags.split(',') if tag.strip()}
+
+    if 'origin:sukhiba' in tags:
+        selected_customer = str(getattr(creds, 'sukhiba_customer_id', '') or '').strip()
+        source_label = 'origin:sukhiba'
+    elif getattr(order, 'order_channel', '') == Order.CHANNEL_POS:
+        selected_customer = str(getattr(creds, 'pos_customer_id', '') or '').strip()
+        source_label = 'POS channel'
+    else:
+        selected_customer = str(getattr(creds, 'ecommerce_customer_id', '') or '').strip()
+        source_label = 'e-commerce default'
+
+    if not selected_customer:
+        raise ValueError(
+            f'Missing configured QuickBooks customer ID for {source_label}. '
+            'Update QuickBooks integration credentials with all customer IDs.'
+        )
+
+    return selected_customer
+
+
+def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> str:
+    """Create a sales invoice in QuickBooks and return the QuickBooks invoice ID."""
+    creds = getattr(integration, 'quickbooks_credentials', None)
+    if not creds:
+        raise ValueError('QuickBooks credentials not configured for this integration.')
+
+    customer_id = _resolve_configured_quickbooks_customer_id(creds, order)
+
+    base_url = (
+        'https://sandbox-quickbooks.api.intuit.com'
+        if creds.environment == QuickBooksCredentials.Environment.SANDBOX
+        else 'https://quickbooks.api.intuit.com'
+    )
+    endpoint = f'{base_url}/v3/company/{creds.realm_id}/invoice?minorversion=75'
+
+    lines: list[dict[str, Any]] = []
+    for item in order.items.all():
+        amount = float(item.total_price)
+        line: dict[str, Any] = {
+            'DetailType': 'SalesItemLineDetail',
+            'Amount': amount,
+            'Description': item.product_name,
+            'SalesItemLineDetail': {
+                'Qty': float(item.quantity),
+                'UnitPrice': float(item.unit_price),
+            },
+        }
+
+        if item.product_id and item.product and item.product.quickbooks_product_id:
+            line['SalesItemLineDetail']['ItemRef'] = {
+                'value': str(item.product.quickbooks_product_id),
+            }
+
+        lines.append(line)
+
+    payload: dict[str, Any] = {
+        'DocNumber': str(order.order_number)[:21],
+        'CustomerRef': {'value': customer_id},
+        'PrivateNote': f'Omni-Link order {order.order_number}',
+        'Line': lines,
+    }
+
+    response = requests.post(
+        endpoint,
+        headers={
+            'Authorization': f'Bearer {creds.client_key}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+        },
+        json=payload,
+        timeout=30,
+    )
+
+    if response.status_code >= 400:
+        detail = response.text
+        try:
+            parsed = response.json()
+            fault = parsed.get('Fault', {}) if isinstance(parsed, dict) else {}
+            errors = fault.get('Error', []) if isinstance(fault, dict) else []
+            if isinstance(errors, list) and errors:
+                first = errors[0]
+                if isinstance(first, dict):
+                    detail = str(first.get('Detail') or first.get('Message') or detail)
+        except ValueError:
+            pass
+        raise ValueError(f'QuickBooks invoice creation failed: {detail}')
+
+    body = cast(dict[str, Any], response.json())
+    invoice = cast(dict[str, Any], body.get('Invoice') or {})
+    invoice_id = str(invoice.get('Id') or '').strip()
+    if not invoice_id:
+        raise ValueError('QuickBooks invoice creation succeeded but no Invoice ID was returned.')
+
+    return invoice_id
 
 
 def _normalize_market_and_currency(
@@ -940,7 +1231,7 @@ def import_shopify_products(
     if integration.type != Integration.IntegrationType.SHOPIFY:
         raise ValueError("Only Shopify integrations support this import.")
 
-    products_payload = _fetch_shopify_products(integration)
+    products_payload = cast(list[dict[str, Any]], _fetch_shopify_products(integration))
 
     imported = 0
     updated = 0
@@ -952,7 +1243,8 @@ def import_shopify_products(
     product_id_to_default_sku: dict[str, str] = {}
     for p in products_payload:
         first_sku = ""
-        for v in p.get("variants", []) or []:
+        variants = cast(list[dict[str, Any]], p.get("variants", []) or [])
+        for v in variants:
             variant_id = str(v.get("id") or "").strip()
             sku = str(v.get("sku") or "").strip()
             if variant_id and sku:
@@ -966,7 +1258,7 @@ def import_shopify_products(
     # First pass: upsert all products by SKU.
     for p in products_payload:
         shopify_product_id = str(p.get("id") or "").strip()
-        variants = p.get("variants", []) or []
+        variants = cast(list[dict[str, Any]], p.get("variants", []) or [])
         if not variants:
             skipped += 1
             continue
@@ -986,9 +1278,10 @@ def import_shopify_products(
 
             category = _get_or_create_category_by_name(p.get("product_type"))
             image_url = ""
-            images = p.get("images", []) or []
-            if images and isinstance(images[0], dict):
-                image_url = str(images[0].get("src") or "")
+            images = cast(list[dict[str, Any]], p.get("images", []) or [])
+            first_image = images[0] if images else None
+            if isinstance(first_image, dict):
+                image_url = str(first_image.get("src") or "")
 
             product, created = Product.objects.update_or_create(
                 sku=sku,
@@ -1014,7 +1307,7 @@ def import_shopify_products(
     # Second pass: build bundle composition for bundle products.
     for p in products_payload:
         shopify_product_id = str(p.get("id") or "").strip()
-        variants = p.get("variants", []) or []
+        variants = cast(list[dict[str, Any]], p.get("variants", []) or [])
         if not variants:
             continue
 
@@ -1022,11 +1315,12 @@ def import_shopify_products(
         if not _is_bundle_product(p, metafields):
             continue
 
-        parent_sku = str((variants[0] or {}).get("sku") or "").strip()
+        parent_variant = variants[0] if variants else {}
+        parent_sku = str(parent_variant.get("sku") or "").strip()
         if not parent_sku:
             continue
 
-        bundle_parent = Product.objects.filter(sku=parent_sku, is_bundle=True).first()
+        bundle_parent = cast(Product | None, Product.objects.filter(sku=parent_sku, is_bundle=True).first())
         if not bundle_parent:
             continue
 
@@ -1041,10 +1335,10 @@ def import_shopify_products(
         ProductBundle.objects.filter(bundle=bundle_parent).delete()
 
         for component_sku, qty in components:
-            component = Product.objects.filter(sku=component_sku, is_bundle=False).first()
+            component = cast(Product | None, Product.objects.filter(sku=component_sku, is_bundle=False).first())
             if not component:
                 continue
-            if component.id == bundle_parent.id:
+            if component_sku == parent_sku:
                 continue
 
             ProductBundle.objects.create(

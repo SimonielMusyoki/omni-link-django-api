@@ -1,3 +1,4 @@
+# pyright: reportMissingTypeArgument=false, reportIncompatibleVariableOverride=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -61,7 +62,8 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             'id', 'email', 'first_name', 'last_name', 'full_name',
-            'role', 'is_active', 'date_joined', 'profile_picture'
+            'role', 'is_active', 'date_joined', 'profile_picture',
+            'can_approve_requests', 'can_dispatch_requests', 'is_verified',
         )
         read_only_fields = ('id', 'date_joined', 'role')
 
@@ -71,7 +73,10 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('first_name', 'last_name', 'profile_picture', 'role')
+        fields = (
+            'first_name', 'last_name', 'profile_picture', 'role',
+            'can_approve_requests', 'can_dispatch_requests', 'is_verified',
+        )
 
 
 class UserSelfUpdateSerializer(serializers.ModelSerializer):

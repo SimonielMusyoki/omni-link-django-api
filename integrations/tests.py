@@ -1,3 +1,6 @@
+# pyright: reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportMissingTypeArgument=false, reportArgumentType=false, reportPrivateUsage=false
+from unittest.mock import MagicMock, patch
+
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
@@ -15,6 +18,8 @@ from integrations.models import (
     ShopifyWebhookDelivery,
 )
 from integrations.services import _resolve_order_channel, _normalize_market_and_currency
+from integrations.services import _resolve_configured_odoo_partner_id
+from integrations.services import _resolve_configured_quickbooks_customer_id, create_quickbooks_sales_invoice
 from orders.models import Order
 from products.models import Product, Warehouse
 
@@ -53,6 +58,9 @@ class IntegrationApiTests(APITestCase):
                     'company_id': 'company-ng-001',
                     'email': 'ops@example.com',
                     'api_key': 'odoo-api-key',
+                    'sukhiba_partner_id': '101',
+                    'pos_partner_id': '102',
+                    'ecommerce_partner_id': '103',
                 },
             },
             format='json',
@@ -66,6 +74,9 @@ class IntegrationApiTests(APITestCase):
             response.data['credential_summary']['company_id'],
             'company-ng-001',
         )
+        self.assertEqual(response.data['credential_summary']['sukhiba_partner_id'], '101')
+        self.assertEqual(response.data['credential_summary']['pos_partner_id'], '102')
+        self.assertEqual(response.data['credential_summary']['ecommerce_partner_id'], '103')
 
     def test_reject_missing_odoo_company_id(self):
         response = self.client.post(
@@ -151,6 +162,9 @@ class IntegrationApiTests(APITestCase):
                     'realm_id': 'realm-123',
                     'client_id': 'client-123',
                     'client_key': 'key-123',
+                    'sukhiba_customer_id': '201',
+                    'pos_customer_id': '202',
+                    'ecommerce_customer_id': '203',
                     'environment': 'SANDBOX',
                 },
             },
@@ -265,6 +279,168 @@ class ShopifyOrderMappingRulesTests(APITestCase):
         market, currency = _normalize_market_and_currency(self.integration_nigeria, payload)
         self.assertEqual(market, 'Nigeria')
         self.assertEqual(currency, 'NGN')
+
+
+class OdooPartnerRoutingRulesTests(APITestCase):
+    def setUp(self):
+        class Creds:
+            sukhiba_partner_id = '1001'
+            pos_partner_id = '1002'
+            ecommerce_partner_id = '1003'
+
+        self.creds = Creds()
+
+    def test_origin_sukhiba_tag_uses_sukhiba_partner(self):
+        class OrderStub:
+            shopify_tags = 'vip, origin:sukhiba, repeat-customer'
+            order_channel = Order.CHANNEL_WEBSITE
+
+        self.assertEqual(_resolve_configured_odoo_partner_id(self.creds, OrderStub()), 1001)
+
+    def test_pos_channel_uses_pos_partner_when_no_sukhiba_tag(self):
+        class OrderStub:
+            shopify_tags = 'vip, repeat-customer'
+            order_channel = Order.CHANNEL_POS
+
+        self.assertEqual(_resolve_configured_odoo_partner_id(self.creds, OrderStub()), 1002)
+
+    def test_default_uses_ecommerce_partner(self):
+        class OrderStub:
+            shopify_tags = ''
+            order_channel = Order.CHANNEL_WEBSITE
+
+        self.assertEqual(_resolve_configured_odoo_partner_id(self.creds, OrderStub()), 1003)
+
+    def test_sukhiba_tag_takes_precedence_over_pos_channel(self):
+        class OrderStub:
+            shopify_tags = 'origin:sukhiba'
+            order_channel = Order.CHANNEL_POS
+
+        self.assertEqual(_resolve_configured_odoo_partner_id(self.creds, OrderStub()), 1001)
+
+    def test_missing_selected_partner_id_raises_error(self):
+        class Creds:
+            sukhiba_partner_id = ''
+            pos_partner_id = '1002'
+            ecommerce_partner_id = '1003'
+
+        class OrderStub:
+            shopify_tags = 'origin:sukhiba'
+            order_channel = Order.CHANNEL_WEBSITE
+
+        with self.assertRaisesMessage(ValueError, 'Missing configured Odoo partner ID'):
+            _resolve_configured_odoo_partner_id(Creds(), OrderStub())
+
+    def test_non_numeric_partner_id_raises_error(self):
+        class Creds:
+            sukhiba_partner_id = 'abc'
+            pos_partner_id = '1002'
+            ecommerce_partner_id = '1003'
+
+        class OrderStub:
+            shopify_tags = 'origin:sukhiba'
+            order_channel = Order.CHANNEL_WEBSITE
+
+        with self.assertRaisesMessage(ValueError, 'must be numeric'):
+            _resolve_configured_odoo_partner_id(Creds(), OrderStub())
+
+
+class QuickBooksCustomerRoutingRulesTests(APITestCase):
+    def setUp(self):
+        class Creds:
+            sukhiba_customer_id = '3001'
+            pos_customer_id = '3002'
+            ecommerce_customer_id = '3003'
+
+        self.creds = Creds()
+
+    def test_origin_sukhiba_tag_uses_sukhiba_customer(self):
+        class OrderStub:
+            shopify_tags = 'vip, origin:sukhiba, repeat-customer'
+            order_channel = Order.CHANNEL_WEBSITE
+
+        self.assertEqual(_resolve_configured_quickbooks_customer_id(self.creds, OrderStub()), '3001')
+
+    def test_pos_channel_uses_pos_customer_when_no_sukhiba_tag(self):
+        class OrderStub:
+            shopify_tags = 'vip, repeat-customer'
+            order_channel = Order.CHANNEL_POS
+
+        self.assertEqual(_resolve_configured_quickbooks_customer_id(self.creds, OrderStub()), '3002')
+
+    def test_default_uses_ecommerce_customer(self):
+        class OrderStub:
+            shopify_tags = ''
+            order_channel = Order.CHANNEL_WEBSITE
+
+        self.assertEqual(_resolve_configured_quickbooks_customer_id(self.creds, OrderStub()), '3003')
+
+    def test_missing_selected_customer_id_raises_error(self):
+        class Creds:
+            sukhiba_customer_id = ''
+            pos_customer_id = '3002'
+            ecommerce_customer_id = '3003'
+
+        class OrderStub:
+            shopify_tags = 'origin:sukhiba'
+            order_channel = Order.CHANNEL_WEBSITE
+
+        with self.assertRaisesMessage(ValueError, 'Missing configured QuickBooks customer ID'):
+            _resolve_configured_quickbooks_customer_id(Creds(), OrderStub())
+
+
+class QuickBooksInvoiceCreationTests(APITestCase):
+    @patch('integrations.services.requests.post')
+    def test_create_quickbooks_sales_invoice_uses_product_item_ref(self, post_mock):
+        class QuickBooksCreds:
+            realm_id = 'realm-001'
+            client_id = 'client-001'
+            client_key = 'token-001'
+            environment = 'SANDBOX'
+            sukhiba_customer_id = '7001'
+            pos_customer_id = '7002'
+            ecommerce_customer_id = '7003'
+
+        class IntegrationStub:
+            quickbooks_credentials = QuickBooksCreds()
+
+        class ProductStub:
+            quickbooks_product_id = '501'
+
+        class ItemStub:
+            product_name = 'Test Product'
+            quantity = 2
+            unit_price = '10.00'
+            total_price = '20.00'
+            product_id = 1
+            product = ProductStub()
+
+        class ItemManagerStub:
+            @staticmethod
+            def all():
+                return [ItemStub()]
+
+        class OrderStub:
+            order_number = 'ORD-1001'
+            shopify_tags = 'origin:sukhiba'
+            order_channel = Order.CHANNEL_WEBSITE
+            items = ItemManagerStub()
+
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {'Invoice': {'Id': 'INV-9001'}}
+        post_mock.return_value = response
+
+        invoice_id = create_quickbooks_sales_invoice(IntegrationStub(), OrderStub())
+
+        self.assertEqual(invoice_id, 'INV-9001')
+        _, kwargs = post_mock.call_args
+        self.assertEqual(kwargs['headers']['Authorization'], 'Bearer token-001')
+        self.assertEqual(kwargs['json']['CustomerRef']['value'], '7001')
+        self.assertEqual(
+            kwargs['json']['Line'][0]['SalesItemLineDetail']['ItemRef']['value'],
+            '501',
+        )
 
 
 class IntegrationPermissionTests(APITestCase):

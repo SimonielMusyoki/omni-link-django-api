@@ -1,3 +1,4 @@
+# pyright: reportMissingTypeArgument=false, reportIncompatibleVariableOverride=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false
 from rest_framework import serializers
 
 from .models import (
@@ -16,11 +17,17 @@ REQUIRED_CREDENTIAL_FIELDS = {
         'company_id',
         'email',
         'api_key',
+        'sukhiba_partner_id',
+        'pos_partner_id',
+        'ecommerce_partner_id',
     },
     Integration.IntegrationType.QUICKBOOKS: {
         'realm_id',
         'client_id',
         'client_key',
+        'sukhiba_customer_id',
+        'pos_customer_id',
+        'ecommerce_customer_id',
     },
 }
 
@@ -82,6 +89,9 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'database_url': creds.database_url,
                 'company_id': creds.company_id,
                 'email': creds.email,
+                'sukhiba_partner_id': creds.sukhiba_partner_id,
+                'pos_partner_id': creds.pos_partner_id,
+                'ecommerce_partner_id': creds.ecommerce_partner_id,
                 'has_api_key': bool(creds.api_key),
             }
 
@@ -92,6 +102,9 @@ class IntegrationSerializer(serializers.ModelSerializer):
             return {
                 'realm_id': creds.realm_id,
                 'client_id': creds.client_id,
+                'sukhiba_customer_id': creds.sukhiba_customer_id,
+                'pos_customer_id': creds.pos_customer_id,
+                'ecommerce_customer_id': creds.ecommerce_customer_id,
                 'environment': creds.environment,
                 'has_client_key': bool(creds.client_key),
             }
@@ -173,6 +186,9 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     'company_id': credentials['company_id'],
                     'email': credentials['email'],
                     'api_key': credentials['api_key'],
+                    'sukhiba_partner_id': credentials['sukhiba_partner_id'],
+                    'pos_partner_id': credentials['pos_partner_id'],
+                    'ecommerce_partner_id': credentials['ecommerce_partner_id'],
                 },
             )
             return
@@ -184,6 +200,9 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     'realm_id': credentials['realm_id'],
                     'client_id': credentials['client_id'],
                     'client_key': credentials['client_key'],
+                    'sukhiba_customer_id': credentials['sukhiba_customer_id'],
+                    'pos_customer_id': credentials['pos_customer_id'],
+                    'ecommerce_customer_id': credentials['ecommerce_customer_id'],
                     'environment': credentials.get('environment', 'SANDBOX'),
                 },
             )

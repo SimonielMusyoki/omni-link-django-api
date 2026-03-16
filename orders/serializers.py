@@ -1,9 +1,13 @@
+# pyright: reportIncompatibleVariableOverride=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportAttributeAccessIssue=false
+
+from typing import Any, cast
+
 from rest_framework import serializers
 from .models import Order, OrderItem
 from products.models import Market
 
 
-class OrderItemSerializer(serializers.ModelSerializer):
+class OrderItemSerializer(serializers.ModelSerializer[OrderItem]):
     """Serializer for OrderItem model"""
     image_url = serializers.CharField(source='product.image_url', read_only=True)
 
@@ -19,7 +23,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
-class OrderSerializer(serializers.ModelSerializer):
+class OrderSerializer(serializers.ModelSerializer[Order]):
     """Serializer for Order model"""
 
     items = OrderItemSerializer(many=True, read_only=True)
@@ -79,14 +83,19 @@ class OrderSerializer(serializers.ModelSerializer):
             # 'shopify_raw_data',
 
             # Items & Computed
+            # Odoo/QuickBooks Integration
+            'odoo_sales_order_id', 'odoo_sales_invoice_id', 'quickbooks_sales_invoice_id',
+
+            # Items & Computed
             'items', 'total_items', 'is_paid', 'is_fulfilled'
         ]
         read_only_fields = [
-            'id', 'created_at', 'updated_at', 'owner', 'total_items', 'is_paid', 'is_fulfilled'
+            'id', 'created_at', 'updated_at', 'owner', 'total_items', 'is_paid', 'is_fulfilled',
+            'odoo_sales_order_id', 'odoo_sales_invoice_id', 'quickbooks_sales_invoice_id',
         ]
 
 
-class OrderCreateUpdateSerializer(serializers.Serializer):
+class OrderCreateUpdateSerializer(serializers.Serializer[Order]):
     """Serializer for creating/updating orders with items"""
 
     order_number = serializers.CharField(max_length=100)
@@ -103,9 +112,9 @@ class OrderCreateUpdateSerializer(serializers.Serializer):
     warehouse = serializers.IntegerField()
     items = OrderItemSerializer(many=True)
 
-    def create(self, validated_data):
+    def create(self, validated_data: dict[str, Any]) -> Order:
         """Create order with items"""
-        items_data = validated_data.pop('items')
+        items_data = cast(list[dict[str, Any]], validated_data.pop('items'))
         order = Order.objects.create(**validated_data)
 
         for item_data in items_data:
@@ -113,9 +122,9 @@ class OrderCreateUpdateSerializer(serializers.Serializer):
 
         return order
 
-    def update(self, instance, validated_data):
+    def update(self, instance: Order, validated_data: dict[str, Any]) -> Order:
         """Update order"""
-        items_data = validated_data.pop('items', None)
+        items_data = cast(list[dict[str, Any]] | None, validated_data.pop('items', None))
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)

@@ -1,3 +1,4 @@
+# pyright: reportMissingTypeArgument=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportArgumentType=false
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model

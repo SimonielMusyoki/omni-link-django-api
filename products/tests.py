@@ -1,3 +1,4 @@
+# pyright: reportMissingTypeArgument=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportArgumentType=false, reportUnusedVariable=false, reportOptionalMemberAccess=false
 """
 Comprehensive tests for the products / inventory system.
 

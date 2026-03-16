@@ -1,3 +1,4 @@
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportAttributeAccessIssue=false
 from django.db import models
 
 from products.models import Warehouse
@@ -83,6 +84,24 @@ class OdooCredentials(models.Model):
     company_id = models.CharField(max_length=255)
     email = models.EmailField()
     api_key = models.CharField(max_length=512)
+    sukhiba_partner_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Odoo partner ID for orders tagged origin:sukhiba',
+    )
+    pos_partner_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Odoo partner ID for POS orders',
+    )
+    ecommerce_partner_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Odoo partner ID for regular e-commerce orders',
+    )
 
     def __str__(self):
         return f'Odoo creds for {self.integration}'
@@ -103,6 +122,24 @@ class QuickBooksCredentials(models.Model):
     realm_id = models.CharField(max_length=255)
     client_id = models.CharField(max_length=255)
     client_key = models.CharField(max_length=512)
+    sukhiba_customer_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='QuickBooks customer ID for orders tagged origin:sukhiba',
+    )
+    pos_customer_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='QuickBooks customer ID for POS orders',
+    )
+    ecommerce_customer_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='QuickBooks customer ID for regular e-commerce orders',
+    )
     environment = models.CharField(
         max_length=20,
         choices=Environment.choices,

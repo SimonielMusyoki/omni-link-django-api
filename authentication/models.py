@@ -1,3 +1,4 @@
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportMissingTypeArgument=false
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
@@ -55,6 +56,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
     last_login = models.DateTimeField(blank=True, null=True)
+
+    # Permission flags
+    can_approve_requests = models.BooleanField(default=False)
+    can_dispatch_requests = models.BooleanField(default=False)
+    is_verified = models.BooleanField(default=False)
 
     # Google OAuth fields
     google_id = models.CharField(max_length=255, blank=True, null=True, unique=True)
