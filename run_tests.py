@@ -15,7 +15,7 @@ if __name__ == "__main__":
         'products.tests',
         'orders.tests',
         'shipments.tests',
-        'requests.tests',
+        'product_requests.tests',
         'invitations.tests',
     ])
 

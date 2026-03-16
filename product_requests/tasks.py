@@ -2,6 +2,7 @@
 from celery import shared_task
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
+from api.timezones import format_business_datetime
 
 from .models import ProductRequest, ProductRequestEvent
 
@@ -263,6 +264,7 @@ def send_request_created_to_approver(request_id: int):
     from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@omnilink.local')
     approver_name = req.approver.get_full_name() or req.approver.email.split('@')[0].title()
     requester_name = req.requested_by.get_full_name() or req.requested_by.email
+    submitted_at = format_business_datetime(req.created_at)
 
     html = _build_html(
         accent='#f59e0b',
@@ -272,6 +274,7 @@ def send_request_created_to_approver(request_id: int):
         paragraphs=[
             f'<strong>{requester_name}</strong> has submitted a new product request that requires your approval.',
             f'<strong>Reason:</strong> {req.reason}',
+            f'<strong>Submitted at:</strong> {submitted_at}',
             'Please review the items below and approve or reject the request directly from the Omni Link portal.',
         ],
         items_html=_product_rows_html(req),
@@ -285,6 +288,7 @@ def send_request_created_to_approver(request_id: int):
         paragraphs=[
             f'{requester_name} has submitted a new product request that requires your approval.',
             f'Reason: {req.reason}',
+            f'Submitted at: {submitted_at}',
             'Please review the items and approve or reject the request from the Omni Link portal.',
         ],
         items_text=_product_rows_text(req),
@@ -324,6 +328,7 @@ def send_request_approved_to_manager(request_id: int):
     from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@omnilink.local')
     manager_name = manager.get_full_name() or manager.email.split('@')[0].title()
     warehouse_name = req.warehouse.name if req.warehouse else 'the warehouse'
+    approved_at = format_business_datetime(req.approved_at or req.updated_at)
 
     html = _build_html(
         accent='#3b82f6',
@@ -333,6 +338,7 @@ def send_request_approved_to_manager(request_id: int):
         paragraphs=[
             f'Product Request <strong>#{req.id}</strong> has been approved and assigned to '
             f'<strong>{warehouse_name}</strong>.',
+            f'<strong>Approved at:</strong> {approved_at}',
             'Please pick and pack the items listed below, then mark the request as '
             '<em>Ready to Collect</em> so the requester receives a notification.',
         ],
@@ -345,6 +351,7 @@ def send_request_approved_to_manager(request_id: int):
         greeting=f'Hello {manager_name},',
         paragraphs=[
             f'Product Request #{req.id} has been approved and assigned to {warehouse_name}.',
+            f'Approved at: {approved_at}',
             'Please pick and pack the items listed below, then mark the request as '
             'Ready to Collect so the requester receives a notification.',
         ],
@@ -383,6 +390,7 @@ def send_request_ready_to_collect_to_requester(request_id: int):
     from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@omnilink.local')
     requester_name = req.requested_by.get_full_name() or req.requested_by.email.split('@')[0].title()
     warehouse_name = req.warehouse.name if req.warehouse else 'the warehouse'
+    ready_at = format_business_datetime(req.ready_at or req.updated_at)
 
     html = _build_html(
         accent='#10b981',
@@ -392,6 +400,7 @@ def send_request_ready_to_collect_to_requester(request_id: int):
         paragraphs=[
             f'Great news! Your product request <strong>#{req.id}</strong> has been packed and is '
             f'ready for collection from <strong>{warehouse_name}</strong>.',
+            f'<strong>Ready at:</strong> {ready_at}',
             'The items below are waiting for you. Please collect them at your earliest convenience.',
         ],
         items_html=_product_rows_html(req),
@@ -405,6 +414,7 @@ def send_request_ready_to_collect_to_requester(request_id: int):
         paragraphs=[
             f'Great news! Your product request #{req.id} has been packed and is '
             f'ready for collection from {warehouse_name}.',
+            f'Ready at: {ready_at}',
             'The items below are waiting for you. Please collect them at your earliest convenience.',
         ],
         items_text=_product_rows_text(req),

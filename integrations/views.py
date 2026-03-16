@@ -1,15 +1,16 @@
 # pyright: reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportMissingTypeArgument=false
 import logging
-from datetime import datetime, timedelta, timezone as dt_timezone
+from datetime import datetime
+from datetime import timedelta
 
 from django.utils import timezone
-from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import status, viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
+from api.timezones import parse_business_datetime_filter_value
 from authentication.permissions import IsAdminOrOwner
 
 logger = logging.getLogger(__name__)
@@ -55,19 +56,22 @@ class IntegrationViewSet(viewsets.ModelViewSet):
             raw_from = request.data.get('date_from')
             raw_to = request.data.get('date_to')
 
-            def _parse_input(value, fallback):
+            def _parse_or_fallback(value, *, end_of_day, fallback):
                 if not value:
                     return fallback
-                parsed_dt = parse_datetime(str(value))
-                if parsed_dt is not None:
-                    return parsed_dt
-                parsed_d = parse_date(str(value))
-                if parsed_d is not None:
-                    return datetime.combine(parsed_d, datetime.min.time(), tzinfo=dt_timezone.utc)
-                return fallback
+                parsed = parse_business_datetime_filter_value(str(value), end_of_day=end_of_day)
+                return parsed if isinstance(parsed, datetime) else fallback
 
-            date_to = _parse_input(raw_to, timezone.now())
-            date_from = _parse_input(raw_from, date_to - timedelta(days=1))
+            date_to = _parse_or_fallback(
+                raw_to,
+                end_of_day=True,
+                fallback=timezone.now(),
+            )
+            date_from = _parse_or_fallback(
+                raw_from,
+                end_of_day=False,
+                fallback=date_to - timedelta(days=1),
+            )
 
             if date_from > date_to:
                 return Response(
