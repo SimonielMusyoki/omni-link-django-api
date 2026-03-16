@@ -178,6 +178,46 @@ class IntegrationApiTests(APITestCase):
             'SANDBOX',
         )
 
+    def test_can_patch_odoo_partner_ids_without_resubmitting_all_credentials(self):
+        created = self.client.post(
+            '/api/integrations/',
+            {
+                'name': 'Kenya Odoo',
+                'type': 'ODOO',
+                'market': 'Kenya',
+                'credentials': {
+                    'server_url': 'https://odoo.example.com',
+                    'database_url': 'odoo-db',
+                    'company_id': '1',
+                    'email': 'admin@example.com',
+                    'api_key': 'odoo-key',
+                    'sukhiba_partner_id': '1001',
+                    'pos_partner_id': '1002',
+                    'ecommerce_partner_id': '1003',
+                },
+            },
+            format='json',
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+
+        integration_id = created.data['id']
+        response = self.client.patch(
+            f'/api/integrations/{integration_id}/',
+            {
+                'credentials': {
+                    'sukhiba_partner_id': '2001',
+                    'pos_partner_id': '2002',
+                    'ecommerce_partner_id': '2003',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['credential_summary']['sukhiba_partner_id'], '2001')
+        self.assertEqual(response.data['credential_summary']['pos_partner_id'], '2002')
+        self.assertEqual(response.data['credential_summary']['ecommerce_partner_id'], '2003')
+
     def test_sync_endpoint_updates_last_sync(self):
         integration = Integration.objects.create(
             name='Kenya QuickBooks',

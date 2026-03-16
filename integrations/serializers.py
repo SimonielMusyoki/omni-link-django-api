@@ -123,10 +123,22 @@ class IntegrationSerializer(serializers.ModelSerializer):
             return attrs
 
         required_fields = REQUIRED_CREDENTIAL_FIELDS.get(integration_type, set())
+        existing_credentials = self._existing_credentials_map(
+            self.instance,
+            integration_type,
+        )
+        merged_credentials = {
+            **existing_credentials,
+            **{
+                key: value
+                for key, value in credentials.items()
+                if str(value).strip()
+            },
+        }
         missing_fields = sorted(
             field
             for field in required_fields
-            if not str(credentials.get(field, '')).strip()
+            if not str(merged_credentials.get(field, '')).strip()
         )
         if missing_fields:
             raise serializers.ValidationError({
@@ -164,15 +176,25 @@ class IntegrationSerializer(serializers.ModelSerializer):
         QuickBooksCredentials.objects.filter(integration=integration).delete()
 
     def _upsert_credentials(self, integration, integration_type, credentials):
+        existing = self._existing_credentials_map(integration, integration_type)
+        merged = {
+            **existing,
+            **{
+                key: value
+                for key, value in credentials.items()
+                if str(value).strip()
+            },
+        }
+
         if integration_type == Integration.IntegrationType.SHOPIFY:
             ShopifyCredentials.objects.update_or_create(
                 integration=integration,
                 defaults={
-                    'store_url': credentials['store_url'],
-                    'access_token': credentials['access_token'],
-                    'api_key': credentials['api_key'],
-                    'api_secret': credentials['api_secret'],
-                    'api_version': credentials.get('api_version', '2024-01'),
+                    'store_url': merged['store_url'],
+                    'access_token': merged['access_token'],
+                    'api_key': merged['api_key'],
+                    'api_secret': merged['api_secret'],
+                    'api_version': merged.get('api_version', '2024-01'),
                 },
             )
             return
@@ -181,14 +203,14 @@ class IntegrationSerializer(serializers.ModelSerializer):
             OdooCredentials.objects.update_or_create(
                 integration=integration,
                 defaults={
-                    'server_url': credentials['server_url'],
-                    'database_url': credentials['database_url'],
-                    'company_id': credentials['company_id'],
-                    'email': credentials['email'],
-                    'api_key': credentials['api_key'],
-                    'sukhiba_partner_id': credentials['sukhiba_partner_id'],
-                    'pos_partner_id': credentials['pos_partner_id'],
-                    'ecommerce_partner_id': credentials['ecommerce_partner_id'],
+                    'server_url': merged['server_url'],
+                    'database_url': merged['database_url'],
+                    'company_id': merged['company_id'],
+                    'email': merged['email'],
+                    'api_key': merged['api_key'],
+                    'sukhiba_partner_id': merged['sukhiba_partner_id'],
+                    'pos_partner_id': merged['pos_partner_id'],
+                    'ecommerce_partner_id': merged['ecommerce_partner_id'],
                 },
             )
             return
@@ -197,15 +219,62 @@ class IntegrationSerializer(serializers.ModelSerializer):
             QuickBooksCredentials.objects.update_or_create(
                 integration=integration,
                 defaults={
-                    'realm_id': credentials['realm_id'],
-                    'client_id': credentials['client_id'],
-                    'client_key': credentials['client_key'],
-                    'sukhiba_customer_id': credentials['sukhiba_customer_id'],
-                    'pos_customer_id': credentials['pos_customer_id'],
-                    'ecommerce_customer_id': credentials['ecommerce_customer_id'],
-                    'environment': credentials.get('environment', 'SANDBOX'),
+                    'realm_id': merged['realm_id'],
+                    'client_id': merged['client_id'],
+                    'client_key': merged['client_key'],
+                    'sukhiba_customer_id': merged['sukhiba_customer_id'],
+                    'pos_customer_id': merged['pos_customer_id'],
+                    'ecommerce_customer_id': merged['ecommerce_customer_id'],
+                    'environment': merged.get('environment', 'SANDBOX'),
                 },
             )
             return
 
         raise serializers.ValidationError({'type': 'Unsupported integration type.'})
+
+    def _existing_credentials_map(self, instance, integration_type):
+        if instance is None:
+            return {}
+
+        if integration_type == Integration.IntegrationType.SHOPIFY:
+            creds = getattr(instance, 'shopify_credentials', None)
+            if not creds:
+                return {}
+            return {
+                'store_url': creds.store_url,
+                'access_token': creds.access_token,
+                'api_key': creds.api_key,
+                'api_secret': creds.api_secret,
+                'api_version': creds.api_version,
+            }
+
+        if integration_type == Integration.IntegrationType.ODOO:
+            creds = getattr(instance, 'odoo_credentials', None)
+            if not creds:
+                return {}
+            return {
+                'server_url': creds.server_url,
+                'database_url': creds.database_url,
+                'company_id': creds.company_id,
+                'email': creds.email,
+                'api_key': creds.api_key,
+                'sukhiba_partner_id': creds.sukhiba_partner_id,
+                'pos_partner_id': creds.pos_partner_id,
+                'ecommerce_partner_id': creds.ecommerce_partner_id,
+            }
+
+        if integration_type == Integration.IntegrationType.QUICKBOOKS:
+            creds = getattr(instance, 'quickbooks_credentials', None)
+            if not creds:
+                return {}
+            return {
+                'realm_id': creds.realm_id,
+                'client_id': creds.client_id,
+                'client_key': creds.client_key,
+                'sukhiba_customer_id': creds.sukhiba_customer_id,
+                'pos_customer_id': creds.pos_customer_id,
+                'ecommerce_customer_id': creds.ecommerce_customer_id,
+                'environment': creds.environment,
+            }
+
+        return {}

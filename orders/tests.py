@@ -1,8 +1,10 @@
 # pyright: reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false
 from django.test import TestCase
+from django.test import override_settings
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient, APITestCase
 from rest_framework import status
+from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal
 from django.utils import timezone
 from django.db import connection
@@ -228,3 +230,40 @@ class OrderAPITest(APITestCase):
                 f'baseline={baseline_queries}, many={many_queries}'
             ),
         )
+
+    @override_settings(BUSINESS_TIME_ZONE='Africa/Nairobi')
+    def test_shopify_created_at_date_only_filter_uses_business_day_boundaries(self):
+        in_range = self._create_order(
+            idx=101,
+            shopify_created_at=datetime(2026, 3, 15, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        self._create_order(
+            idx=102,
+            shopify_created_at=datetime(2026, 3, 16, 21, 0, tzinfo=dt_timezone.utc),
+        )
+
+        response = self.client.get(
+            '/api/orders/?shopify_created_at__gte=2026-03-16&shopify_created_at__lte=2026-03-16'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], in_range.id)
+
+    @override_settings(BUSINESS_TIME_ZONE='Africa/Nairobi')
+    def test_created_at_date_only_filter_uses_business_day_boundaries(self):
+        in_range = self._create_order(idx=201)
+        out_of_range = self._create_order(idx=202)
+
+        Order.objects.filter(id=in_range.id).update(
+            created_at=datetime(2026, 3, 16, 20, 59, 59, tzinfo=dt_timezone.utc)
+        )
+        Order.objects.filter(id=out_of_range.id).update(
+            created_at=datetime(2026, 3, 16, 21, 0, 0, tzinfo=dt_timezone.utc)
+        )
+
+        response = self.client.get('/api/orders/?created_at__gte=2026-03-16&created_at__lte=2026-03-16')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], in_range.id)

@@ -105,6 +105,7 @@ if [ ! -f "${ENV_FILE}" ]; then
 DJANGO_SECRET_KEY=REPLACE_WITH_LONG_RANDOM_SECRET
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS=api-wms.uncoverskincare.co
+BUSINESS_TIME_ZONE=Africa/Nairobi
 
 # Postgres (Amazon RDS)
 DB_NAME=omnilink_prod

@@ -15,6 +15,7 @@ from rest_framework.serializers import BaseSerializer
 
 from .models import Order, OrderItem
 from .serializers import OrderSerializer, OrderItemSerializer, OrderCreateUpdateSerializer
+from api.timezones import parse_business_datetime_filter_value
 from integrations.models import Integration
 from integrations.services import (
     create_odoo_sales_order,
@@ -52,13 +53,27 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
         shopify_created_at_lte = self.request.query_params.get('shopify_created_at__lte')
 
         if created_at_gte:
-            queryset = queryset.filter(created_at__gte=created_at_gte)
+            queryset = queryset.filter(
+                created_at__gte=parse_business_datetime_filter_value(created_at_gte, end_of_day=False)
+            )
         if created_at_lte:
-            queryset = queryset.filter(created_at__lte=created_at_lte)
+            queryset = queryset.filter(
+                created_at__lte=parse_business_datetime_filter_value(created_at_lte, end_of_day=True)
+            )
         if shopify_created_at_gte:
-            queryset = queryset.filter(shopify_created_at__gte=shopify_created_at_gte)
+            queryset = queryset.filter(
+                shopify_created_at__gte=parse_business_datetime_filter_value(
+                    shopify_created_at_gte,
+                    end_of_day=False,
+                )
+            )
         if shopify_created_at_lte:
-            queryset = queryset.filter(shopify_created_at__lte=shopify_created_at_lte)
+            queryset = queryset.filter(
+                shopify_created_at__lte=parse_business_datetime_filter_value(
+                    shopify_created_at_lte,
+                    end_of_day=True,
+                )
+            )
 
         return queryset
 

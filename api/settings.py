@@ -143,6 +143,7 @@ AUTH_PASSWORD_VALIDATORS = [
 LANGUAGE_CODE = 'en-us'
 
 TIME_ZONE = 'UTC'
+BUSINESS_TIME_ZONE = config('BUSINESS_TIME_ZONE', default='Africa/Nairobi')
 
 USE_I18N = True
 
