@@ -187,7 +187,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
         }
 
         if integration_type == Integration.IntegrationType.SHOPIFY:
-            ShopifyCredentials.objects.update_or_create(
+            creds, _ = ShopifyCredentials.objects.update_or_create(
                 integration=integration,
                 defaults={
                     'store_url': merged['store_url'],
@@ -197,10 +197,11 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     'api_version': merged.get('api_version', '2024-01'),
                 },
             )
+            integration.shopify_credentials = creds
             return
 
         if integration_type == Integration.IntegrationType.ODOO:
-            OdooCredentials.objects.update_or_create(
+            creds, _ = OdooCredentials.objects.update_or_create(
                 integration=integration,
                 defaults={
                     'server_url': merged['server_url'],
@@ -213,10 +214,11 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     'ecommerce_partner_id': merged['ecommerce_partner_id'],
                 },
             )
+            integration.odoo_credentials = creds
             return
 
         if integration_type == Integration.IntegrationType.QUICKBOOKS:
-            QuickBooksCredentials.objects.update_or_create(
+            creds, _ = QuickBooksCredentials.objects.update_or_create(
                 integration=integration,
                 defaults={
                     'realm_id': merged['realm_id'],
@@ -228,6 +230,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     'environment': merged.get('environment', 'SANDBOX'),
                 },
             )
+            integration.quickbooks_credentials = creds
             return
 
         raise serializers.ValidationError({'type': 'Unsupported integration type.'})
