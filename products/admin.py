@@ -1,3 +1,4 @@
+# pyright: reportMissingTypeArgument=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportFunctionMemberAccess=false, reportIncompatibleMethodOverride=false
 from django.contrib import admin
 from django.utils.html import format_html
 

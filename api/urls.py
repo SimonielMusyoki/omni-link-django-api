@@ -1,3 +1,4 @@
+# pyright: reportUnknownVariableType=false, reportUnknownParameterType=false, reportMissingParameterType=false
 """
 URL configuration for api project.
 

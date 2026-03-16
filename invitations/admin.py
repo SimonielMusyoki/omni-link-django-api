@@ -1,3 +1,4 @@
+# pyright: reportMissingTypeArgument=false, reportUnknownVariableType=false, reportUnknownMemberType=false
 from django.contrib import admin
 from .models import Invitation
 

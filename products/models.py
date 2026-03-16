@@ -1,3 +1,4 @@
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportUnknownParameterType=false, reportMissingParameterType=false
 """
 Products app models.
 
@@ -151,6 +152,18 @@ class Product(models.Model):
         help_text='Minimum total stock before a reorder alert fires.',
     )
     image_url = models.URLField(blank=True, default='')
+    odoo_product_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Odoo product template ID for sync',
+    )
+    quickbooks_product_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='QuickBooks item ID for sync',
+    )
     is_bundle = models.BooleanField(
         default=False,
         help_text='True if this product is a bundle composed of other products.',

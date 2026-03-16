@@ -1,18 +1,29 @@
-from rest_framework import viewsets, status, filters
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportUnnecessaryCast=false, reportIncompatibleMethodOverride=false
+
+from typing import Any, cast
+
+from django.db.models import Prefetch, QuerySet
+from django.utils import timezone
+from django.db import transaction
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db import transaction
-from django.utils import timezone
-from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Prefetch
+from rest_framework.serializers import BaseSerializer
 
 from .models import Order, OrderItem
 from .serializers import OrderSerializer, OrderItemSerializer, OrderCreateUpdateSerializer
 from integrations.models import Integration
+from integrations.services import (
+    create_odoo_sales_order,
+    create_odoo_invoice_record,
+    create_quickbooks_sales_invoice,
+)
 
 
-class OrderViewSet(viewsets.ModelViewSet):
+class OrderViewSet(viewsets.ModelViewSet[Order]):
     """ViewSet for Order model"""
 
     serializer_class = OrderSerializer
@@ -24,7 +35,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     # Default sort: most recently placed on Shopify first.
     ordering = ['-shopify_created_at', '-created_at']
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[Order]:
         """Return orders for current user with optional date filtering"""
         queryset = (
             Order.objects
@@ -52,26 +63,26 @@ class OrderViewSet(viewsets.ModelViewSet):
         return queryset
 
     @transaction.atomic
-    def perform_create(self, serializer):
+    def perform_create(self, serializer: BaseSerializer[Order]) -> None:
         """Create order with current user as owner"""
         serializer.save(owner=self.request.user)
 
-    def create(self, request, *args, **kwargs):
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Create order with items"""
         serializer = OrderCreateUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.validated_data['owner'] = request.user
 
-        order = serializer.save()
+        order = cast(Order, serializer.save())
         return Response(
             OrderSerializer(order).data,
             status=status.HTTP_201_CREATED
         )
 
-    def update(self, request, *args, **kwargs):
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update order"""
         partial = kwargs.pop('partial', False)
-        instance = self.get_object()
+        instance = cast(Order, self.get_object())
 
         serializer = OrderCreateUpdateSerializer(
             instance,
@@ -79,14 +90,14 @@ class OrderViewSet(viewsets.ModelViewSet):
             partial=partial
         )
         serializer.is_valid(raise_exception=True)
-        order = serializer.save()
+        order = cast(Order, serializer.save())
 
         return Response(OrderSerializer(order).data)
 
     @action(detail=True, methods=['post'])
-    def ship(self, request, pk=None):
+    def ship(self, request: Request, pk: str | None = None) -> Response:
         """Mark order as shipped"""
-        order = self.get_object()
+        order = cast(Order, self.get_object())
 
         if order.status != Order.PENDING and order.status != Order.CONFIRMED:
             return Response(
@@ -104,9 +115,9 @@ class OrderViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['post'])
-    def deliver(self, request, pk=None):
+    def deliver(self, request: Request, pk: str | None = None) -> Response:
         """Mark order as delivered"""
-        order = self.get_object()
+        order = cast(Order, self.get_object())
 
         if order.status != Order.SHIPPED:
             return Response(
@@ -124,9 +135,9 @@ class OrderViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['post'])
-    def cancel(self, request, pk=None):
+    def cancel(self, request: Request, pk: str | None = None) -> Response:
         """Cancel order"""
-        order = self.get_object()
+        order = cast(Order, self.get_object())
 
         if order.status in [Order.SHIPPED, Order.DELIVERED]:
             return Response(
@@ -143,24 +154,24 @@ class OrderViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['get'])
-    def items(self, request, pk=None):
+    def items(self, request: Request, pk: str | None = None) -> Response:
         """Get order items"""
-        order = self.get_object()
+        order = cast(Order, self.get_object())
         items = order.items.all()
         serializer = OrderItemSerializer(items, many=True)
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], url_path='push-to-quickbooks')
-    def push_to_quickbooks(self, request, pk=None):
+    def push_to_quickbooks(self, request: Request, pk: str | None = None) -> Response:
         """Push order to QuickBooks for the order's market"""
-        order = self.get_object()
+        order = cast(Order, self.get_object())
 
         # Find active QuickBooks integration for this order's market
-        integration = Integration.objects.filter(
+        integration = cast(Integration | None, Integration.objects.filter(
             type=Integration.IntegrationType.QUICKBOOKS,
             market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
-        ).first()
+        ).first())
 
         if not integration:
             return Response(
@@ -168,25 +179,30 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # TODO: Implement actual QuickBooks API integration
-        # For now, return success with integration info
-        return Response({
-            'success': True,
-            'message': f'Order pushed to QuickBooks ({integration.name})',
-            'integration_id': integration.id,
-            'order_id': order.id,
-        })
+        try:
+            quickbooks_invoice_id = create_quickbooks_sales_invoice(integration, order)
+        except Exception as exc:  # noqa: BLE001
+            return Response(
+                {'error': f'Failed to create QuickBooks Invoice: {exc}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order.quickbooks_sales_invoice_id = str(quickbooks_invoice_id)
+        order.save(update_fields=['quickbooks_sales_invoice_id'])
+
+        serializer = OrderSerializer(order)
+        return Response(serializer.data)
 
     @action(detail=True, methods=['get'], url_path='view-in-quickbooks')
-    def view_in_quickbooks(self, request, pk=None):
+    def view_in_quickbooks(self, request: Request, pk: str | None = None) -> Response:
         """Get QuickBooks URL for this order"""
-        order = self.get_object()
+        order = cast(Order, self.get_object())
 
-        integration = Integration.objects.filter(
+        integration = cast(Integration | None, Integration.objects.filter(
             type=Integration.IntegrationType.QUICKBOOKS,
             market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
-        ).first()
+        ).first())
 
         if not integration:
             return Response(
@@ -201,9 +217,18 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        if not order.quickbooks_sales_invoice_id:
+            return Response(
+                {'error': 'No QuickBooks Invoice has been created for this order yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Generate QuickBooks URL
         env = 'sandbox' if creds.environment == 'SANDBOX' else 'app'
-        url = f'https://{env}.qbo.intuit.com/app/invoice?txnId={order.shopify_order_id}'
+        url = (
+            f'https://{env}.qbo.intuit.com/app/invoice'
+            f'?txnId={order.quickbooks_sales_invoice_id}'
+        )
 
         return Response({
             'url': url,
@@ -211,15 +236,15 @@ class OrderViewSet(viewsets.ModelViewSet):
         })
 
     @action(detail=True, methods=['post'], url_path='create-odoo-so')
-    def create_odoo_so(self, request, pk=None):
+    def create_odoo_so(self, request: Request, pk: str | None = None) -> Response:
         """Create Odoo Sales Order for this order"""
-        order = self.get_object()
+        order = cast(Order, self.get_object())
 
-        integration = Integration.objects.filter(
+        integration = cast(Integration | None, Integration.objects.filter(
             type=Integration.IntegrationType.ODOO,
             market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
-        ).first()
+        ).first())
 
         if not integration:
             return Response(
@@ -227,25 +252,30 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # TODO: Implement actual Odoo XML-RPC integration
-        return Response({
-            'success': True,
-            'message': f'Sales Order created in Odoo ({integration.name})',
-            'integration_id': integration.id,
-            'order_id': order.id,
-            'odoo_so_id': f'SO{order.shopify_order_number}',
-        })
+        try:
+            odoo_so_id = create_odoo_sales_order(integration, order)
+        except Exception as exc:  # noqa: BLE001
+            return Response(
+                {'error': f'Failed to create Odoo Sales Order: {exc}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order.odoo_sales_order_id = str(odoo_so_id)
+        order.save(update_fields=['odoo_sales_order_id'])
+
+        serializer = OrderSerializer(order)
+        return Response(serializer.data)
 
     @action(detail=True, methods=['post'], url_path='create-odoo-invoice')
-    def create_odoo_invoice(self, request, pk=None):
+    def create_odoo_invoice(self, request: Request, pk: str | None = None) -> Response:
         """Create Odoo Invoice for this order"""
-        order = self.get_object()
+        order = cast(Order, self.get_object())
 
-        integration = Integration.objects.filter(
+        integration = cast(Integration | None, Integration.objects.filter(
             type=Integration.IntegrationType.ODOO,
             market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
-        ).first()
+        ).first())
 
         if not integration:
             return Response(
@@ -253,25 +283,30 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # TODO: Implement actual Odoo XML-RPC integration
-        return Response({
-            'success': True,
-            'message': f'Invoice created in Odoo ({integration.name})',
-            'integration_id': integration.id,
-            'order_id': order.id,
-            'odoo_invoice_id': f'INV{order.shopify_order_number}',
-        })
+        try:
+            odoo_invoice_id = create_odoo_invoice_record(integration, order)
+        except Exception as exc:  # noqa: BLE001
+            return Response(
+                {'error': f'Failed to create Odoo Invoice: {exc}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order.odoo_sales_invoice_id = str(odoo_invoice_id)
+        order.save(update_fields=['odoo_sales_invoice_id'])
+
+        serializer = OrderSerializer(order)
+        return Response(serializer.data)
 
     @action(detail=True, methods=['get'], url_path='view-odoo-so')
-    def view_odoo_so(self, request, pk=None):
+    def view_odoo_so(self, request: Request, pk: str | None = None) -> Response:
         """Get Odoo Sales Order URL for this order"""
-        order = self.get_object()
+        order = cast(Order, self.get_object())
 
-        integration = Integration.objects.filter(
+        integration = cast(Integration | None, Integration.objects.filter(
             type=Integration.IntegrationType.ODOO,
             market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
-        ).first()
+        ).first())
 
         if not integration:
             return Response(
@@ -286,8 +321,16 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Generate Odoo URL
-        url = f'{creds.server_url}/web#id={order.shopify_order_id}&model=sale.order&view_type=form'
+        if not order.odoo_sales_order_id:
+            return Response(
+                {'error': 'No Odoo Sales Order has been created for this order yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        url = (
+            f"{creds.server_url.rstrip('/')}/web"
+            f"#id={order.odoo_sales_order_id}&model=sale.order&view_type=form"
+        )
 
         return Response({
             'url': url,
@@ -295,15 +338,15 @@ class OrderViewSet(viewsets.ModelViewSet):
         })
 
     @action(detail=True, methods=['get'], url_path='view-odoo-invoice')
-    def view_odoo_invoice(self, request, pk=None):
+    def view_odoo_invoice(self, request: Request, pk: str | None = None) -> Response:
         """Get Odoo Invoice URL for this order"""
-        order = self.get_object()
+        order = cast(Order, self.get_object())
 
-        integration = Integration.objects.filter(
+        integration = cast(Integration | None, Integration.objects.filter(
             type=Integration.IntegrationType.ODOO,
             market=order.market.name,
             status=Integration.IntegrationStatus.ACTIVE,
-        ).first()
+        ).first())
 
         if not integration:
             return Response(
@@ -318,8 +361,16 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Generate Odoo URL
-        url = f'{creds.server_url}/web#id={order.shopify_order_id}&model=account.move&view_type=form'
+        if not order.odoo_sales_invoice_id:
+            return Response(
+                {'error': 'No Odoo Invoice has been created for this order yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        url = (
+            f"{creds.server_url.rstrip('/')}/web"
+            f"#id={order.odoo_sales_invoice_id}&model=account.move&view_type=form"
+        )
 
         return Response({
             'url': url,

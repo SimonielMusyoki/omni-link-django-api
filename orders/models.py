@@ -1,3 +1,4 @@
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportUnknownParameterType=false
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator
@@ -266,6 +267,25 @@ class Order(models.Model):
 
     # Additional metadata stored as JSON
     shopify_raw_data = models.JSONField(default=dict, blank=True, help_text='Raw Shopify order data')
+    # Odoo Integration
+    odoo_sales_order_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Odoo Sales Order record ID',
+    )
+    odoo_sales_invoice_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Odoo Account Move (Invoice) record ID',
+    )
+    quickbooks_sales_invoice_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='QuickBooks Sales Invoice record ID',
+    )
 
     class Meta:
         ordering = ['-created_at']

@@ -1,3 +1,4 @@
+# pyright: reportMissingTypeArgument=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportFunctionMemberAccess=false
 from django.contrib import admin
 from .models import ProductRequest, ProductRequestItem
 

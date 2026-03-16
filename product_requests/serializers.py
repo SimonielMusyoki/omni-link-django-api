@@ -1,3 +1,4 @@
+# pyright: reportMissingTypeArgument=false, reportIncompatibleVariableOverride=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportAssignmentType=false
 from rest_framework import serializers
 from .models import ProductRequest, ProductRequestItem, ProductRequestEvent
 

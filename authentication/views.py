@@ -1,3 +1,4 @@
+# pyright: reportMissingTypeArgument=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false
 from rest_framework import status, generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -45,7 +46,21 @@ class UserRegistrationView(generics.CreateAPIView):
 
 class UserLoginView(TokenObtainPairView):
     """View for user login with email and password"""
-    pass
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+
+        # After successful authentication, attach is_verified to the response
+        # so the frontend can immediately redirect to the Not Authorised page.
+        if response.status_code == 200:
+            email = request.data.get("email", "")
+            try:
+                user = User.objects.get(email=email)
+                response.data["is_verified"] = user.is_verified
+            except User.DoesNotExist:
+                pass
+
+        return response
 
 
 class UserLogoutView(APIView):

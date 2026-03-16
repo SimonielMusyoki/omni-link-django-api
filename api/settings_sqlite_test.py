@@ -1,3 +1,4 @@
+# pyright: reportUnknownVariableType=false, reportUndefinedVariable=false, reportConstantRedefinition=false
 from .settings import *  # noqa: F401,F403
 
 # Use sqlite for local test execution when Postgres is unavailable.

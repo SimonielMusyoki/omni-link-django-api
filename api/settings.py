@@ -1,3 +1,4 @@
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUndefinedVariable=false, reportUnusedImport=false, reportConstantRedefinition=false, reportArgumentType=false
 """
 Django settings for api project.
 

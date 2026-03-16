@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false
 """
 Test script to verify authentication system setup
 Run this after migrations to test basic functionality

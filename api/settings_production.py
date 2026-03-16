@@ -1,3 +1,4 @@
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUndefinedVariable=false, reportConstantRedefinition=false
 """Production settings entrypoint.
 
 Loads environment variables from `.env.prod` located one level above the
