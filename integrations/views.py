@@ -1,3 +1,25 @@
+from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny
+
+
+# QuickBooks OAuth callback endpoint
+class QuickBooksOAuthCallbackView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        # This is where QuickBooks will redirect after user authorization
+        # You should handle the OAuth code exchange here
+        code = request.query_params.get('code')
+        state = request.query_params.get('state')
+        realm_id = request.query_params.get('realmId')
+        # TODO: Exchange code for access token, save credentials, etc.
+        return Response({
+            'status': 'ok',
+            'message': 'QuickBooks OAuth callback received',
+            'code': code,
+            'state': state,
+            'realm_id': realm_id,
+        })
 # pyright: reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportMissingTypeArgument=false
 import logging
 from datetime import datetime
