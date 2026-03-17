@@ -15,8 +15,12 @@ from authentication.permissions import IsAdminOrOwner
 
 logger = logging.getLogger(__name__)
 
-from .models import Integration
-from .serializers import IntegrationSerializer
+from .models import Integration, ProductMarketMapping, OrderSyncLog
+from .serializers import (
+    IntegrationSerializer,
+    ProductMarketMappingSerializer,
+    OrderSyncLogSerializer,
+)
 from integrations.services import (
     test_integration_connection,
     import_shopify_orders,
@@ -46,6 +50,24 @@ class IntegrationViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'type', 'market']
     ordering_fields = ['created_at', 'status', 'market']
     ordering = ['-created_at']
+
+    def perform_update(self, serializer):
+        instance: Integration = serializer.instance  # type: ignore[assignment]
+        new_status = serializer.validated_data.get('status')
+
+        # Guard: cannot activate an integration unless test-connection passes
+        if (
+            new_status == Integration.IntegrationStatus.ACTIVE
+            and instance.status != Integration.IntegrationStatus.ACTIVE
+        ):
+            ok, message = test_integration_connection(instance)
+            if not ok:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({
+                    'status': f'Cannot activate: connection test failed — {message}'
+                })
+
+        serializer.save()
 
     @action(detail=True, methods=['post'], url_path='sync')
     def sync(self, request, pk=None):
@@ -268,3 +290,64 @@ class ShopifyWebhookView(APIView):
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({'status': 'accepted', **result}, status=status.HTTP_200_OK)
+
+
+class ProductMarketMappingViewSet(viewsets.ModelViewSet):
+    """CRUD for per-market product ID mappings (Odoo & QuickBooks)."""
+
+    queryset = (
+        ProductMarketMapping.objects
+        .select_related('product', 'market')
+        .order_by('product__name', 'market__name')
+    )
+    serializer_class = ProductMarketMappingSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['product', 'market']
+    search_fields = ['product__name', 'product__sku', 'market__name']
+    ordering_fields = ['product__name', 'market__name', 'updated_at']
+
+    @action(detail=False, methods=['post'], url_path='bulk-upsert')
+    def bulk_upsert(self, request):
+        """Accepts a list of {product, market, odoo_product_id, quickbooks_product_id}
+        and creates/updates mappings in bulk."""
+        items = request.data if isinstance(request.data, list) else []
+        if not items:
+            return Response(
+                {'detail': 'Expected a non-empty list.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        results = []
+        for item in items:
+            product_id = item.get('product')
+            market_id = item.get('market')
+            if not product_id or not market_id:
+                continue
+            mapping, _ = ProductMarketMapping.objects.update_or_create(
+                product_id=product_id,
+                market_id=market_id,
+                defaults={
+                    'odoo_product_id': item.get('odoo_product_id', ''),
+                    'quickbooks_product_id': item.get('quickbooks_product_id', ''),
+                },
+            )
+            results.append(ProductMarketMappingSerializer(mapping).data)
+
+        return Response(results, status=status.HTTP_200_OK)
+
+
+class OrderSyncLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only log of order sync attempts to Odoo and QuickBooks."""
+
+    queryset = (
+        OrderSyncLog.objects
+        .select_related('order', 'integration')
+        .order_by('-created_at')
+    )
+    serializer_class = OrderSyncLogSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['order', 'integration', 'target', 'status']
+    search_fields = ['order__order_number', 'integration__name', 'error_message']
+    ordering_fields = ['created_at', 'status']

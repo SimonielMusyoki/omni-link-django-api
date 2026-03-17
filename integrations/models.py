@@ -1,7 +1,7 @@
 # pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportAttributeAccessIssue=false
 from django.db import models
 
-from products.models import Warehouse
+from products.models import Market, Product, Warehouse
 
 
 class Integration(models.Model):
@@ -31,6 +31,10 @@ class Integration(models.Model):
         null=True,
         blank=True,
         related_name='integrations',
+    )
+    auto_sync_orders = models.BooleanField(
+        default=False,
+        help_text='Automatically push new orders to this platform when they arrive.',
     )
     last_sync = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -102,6 +106,18 @@ class OdooCredentials(models.Model):
         default='',
         help_text='Odoo partner ID for regular e-commerce orders',
     )
+    tax_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Odoo tax ID to apply on invoice lines',
+    )
+    shipping_fee_account_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Odoo account ID for shipping fee journal entries',
+    )
 
     def __str__(self):
         return f'Odoo creds for {self.integration}'
@@ -139,6 +155,18 @@ class QuickBooksCredentials(models.Model):
         blank=True,
         default='',
         help_text='QuickBooks customer ID for regular e-commerce orders',
+    )
+    tax_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='QuickBooks tax code/rate ID to apply on invoice lines',
+    )
+    shipping_fee_account_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='QuickBooks item/account ID for shipping fee line items',
     )
     environment = models.CharField(
         max_length=20,
@@ -180,3 +208,92 @@ class ShopifyWebhookDelivery(models.Model):
 
     def __str__(self):
         return f'{self.webhook_id} ({self.topic})'
+
+
+class ProductMarketMapping(models.Model):
+    """Maps a product to its Odoo/QuickBooks IDs for a specific market."""
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='market_mappings',
+    )
+    market = models.ForeignKey(
+        Market,
+        on_delete=models.CASCADE,
+        related_name='product_mappings',
+    )
+    odoo_product_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Odoo product template ID for this market',
+    )
+    quickbooks_product_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='QuickBooks item ID for this market',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['product', 'market']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['product', 'market'],
+                name='unique_product_market_mapping',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['product', 'market']),
+        ]
+
+    def __str__(self):
+        return f'{self.product.name} → {self.market.name}'
+
+
+class OrderSyncLog(models.Model):
+    """Tracks individual sync attempts of an order to Odoo or QuickBooks."""
+
+    class SyncTarget(models.TextChoices):
+        ODOO_SO = 'ODOO_SO', 'Odoo Sales Order'
+        ODOO_INVOICE = 'ODOO_INVOICE', 'Odoo Invoice'
+        QUICKBOOKS = 'QUICKBOOKS', 'QuickBooks Invoice'
+
+    class SyncStatus(models.TextChoices):
+        SUCCESS = 'SUCCESS', 'Success'
+        FAILED = 'FAILED', 'Failed'
+
+    order = models.ForeignKey(
+        'orders.Order',
+        on_delete=models.CASCADE,
+        related_name='sync_logs',
+    )
+    integration = models.ForeignKey(
+        Integration,
+        on_delete=models.CASCADE,
+        related_name='sync_logs',
+    )
+    target = models.CharField(max_length=20, choices=SyncTarget.choices)
+    status = models.CharField(max_length=10, choices=SyncStatus.choices)
+    external_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='ID returned by the external platform (e.g. Odoo SO ID, QB Invoice ID)',
+    )
+    error_message = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['order', '-created_at']),
+            models.Index(fields=['integration', '-created_at']),
+            models.Index(fields=['status', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.get_target_display()} → {self.order} ({self.status})'

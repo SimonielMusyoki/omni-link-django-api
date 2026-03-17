@@ -6,6 +6,8 @@ from .models import (
     ShopifyCredentials,
     OdooCredentials,
     QuickBooksCredentials,
+    ProductMarketMapping,
+    OrderSyncLog,
 )
 
 
@@ -55,6 +57,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
             'status',
             'warehouse',
             'warehouse_name',
+            'auto_sync_orders',
             'credentials',
             'credential_schema',
             'credential_summary',
@@ -92,6 +95,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'sukhiba_partner_id': creds.sukhiba_partner_id,
                 'pos_partner_id': creds.pos_partner_id,
                 'ecommerce_partner_id': creds.ecommerce_partner_id,
+                'tax_id': creds.tax_id,
+                'shipping_fee_account_id': creds.shipping_fee_account_id,
                 'has_api_key': bool(creds.api_key),
             }
 
@@ -105,6 +110,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'sukhiba_customer_id': creds.sukhiba_customer_id,
                 'pos_customer_id': creds.pos_customer_id,
                 'ecommerce_customer_id': creds.ecommerce_customer_id,
+                'tax_id': creds.tax_id,
+                'shipping_fee_account_id': creds.shipping_fee_account_id,
                 'environment': creds.environment,
                 'has_client_key': bool(creds.client_key),
             }
@@ -212,6 +219,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     'sukhiba_partner_id': merged['sukhiba_partner_id'],
                     'pos_partner_id': merged['pos_partner_id'],
                     'ecommerce_partner_id': merged['ecommerce_partner_id'],
+                    'tax_id': merged.get('tax_id', ''),
+                    'shipping_fee_account_id': merged.get('shipping_fee_account_id', ''),
                 },
             )
             integration.odoo_credentials = creds
@@ -227,6 +236,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     'sukhiba_customer_id': merged['sukhiba_customer_id'],
                     'pos_customer_id': merged['pos_customer_id'],
                     'ecommerce_customer_id': merged['ecommerce_customer_id'],
+                    'tax_id': merged.get('tax_id', ''),
+                    'shipping_fee_account_id': merged.get('shipping_fee_account_id', ''),
                     'environment': merged.get('environment', 'SANDBOX'),
                 },
             )
@@ -264,6 +275,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'sukhiba_partner_id': creds.sukhiba_partner_id,
                 'pos_partner_id': creds.pos_partner_id,
                 'ecommerce_partner_id': creds.ecommerce_partner_id,
+                'tax_id': creds.tax_id,
+                'shipping_fee_account_id': creds.shipping_fee_account_id,
             }
 
         if integration_type == Integration.IntegrationType.QUICKBOOKS:
@@ -277,7 +290,42 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'sukhiba_customer_id': creds.sukhiba_customer_id,
                 'pos_customer_id': creds.pos_customer_id,
                 'ecommerce_customer_id': creds.ecommerce_customer_id,
+                'tax_id': creds.tax_id,
+                'shipping_fee_account_id': creds.shipping_fee_account_id,
                 'environment': creds.environment,
             }
 
         return {}
+
+
+class ProductMarketMappingSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    product_sku = serializers.CharField(source='product.sku', read_only=True)
+    market_name = serializers.CharField(source='market.name', read_only=True)
+
+    class Meta:
+        model = ProductMarketMapping
+        fields = [
+            'id', 'product', 'product_name', 'product_sku',
+            'market', 'market_name',
+            'odoo_product_id', 'quickbooks_product_id',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class OrderSyncLogSerializer(serializers.ModelSerializer):
+    order_number = serializers.CharField(source='order.order_number', read_only=True)
+    integration_name = serializers.CharField(source='integration.name', read_only=True)
+    target_display = serializers.CharField(source='get_target_display', read_only=True)
+
+    class Meta:
+        model = OrderSyncLog
+        fields = [
+            'id', 'order', 'order_number',
+            'integration', 'integration_name',
+            'target', 'target_display',
+            'status', 'external_id', 'error_message',
+            'created_at',
+        ]
+        read_only_fields = fields
