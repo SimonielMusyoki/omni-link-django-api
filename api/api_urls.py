@@ -10,7 +10,7 @@ from products.views import (
     InventoryTransferViewSet,
     MarketViewSet,
 )
-from integrations.views import IntegrationViewSet, ShopifyWebhookView, ProductMarketMappingViewSet, OrderSyncLogViewSet
+from integrations.views import IntegrationViewSet, ShopifyWebhookView, ProductMarketMappingViewSet, OrderSyncLogViewSet, QuickBooksOAuthCallbackView
 from orders.views import OrderViewSet
 from shipments.views import ShipmentViewSet
 from product_requests.views import RequestViewSet
@@ -38,6 +38,7 @@ router.register(r'invitations', InvitationViewSet, basename='invitation')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('integrations/quickbooks/callback/', QuickBooksOAuthCallbackView.as_view(), name='quickbooks-oauth-callback'),
     path(
         'webhooks/shopify/orders/create/',
         ShopifyWebhookView.as_view(topic='orders/create'),
