@@ -287,6 +287,31 @@ class Order(models.Model):
         help_text='QuickBooks Sales Invoice record ID',
     )
 
+    # Sync status for auto-sync tracking
+    SYNC_NOT_SYNCED = 'NOT_SYNCED'
+    SYNC_PENDING = 'PENDING'
+    SYNC_SUCCESS = 'SUCCESS'
+    SYNC_FAILED = 'FAILED'
+    SYNC_STATUS_CHOICES = [
+        (SYNC_NOT_SYNCED, 'Not Synced'),
+        (SYNC_PENDING, 'Pending'),
+        (SYNC_SUCCESS, 'Success'),
+        (SYNC_FAILED, 'Failed'),
+    ]
+
+    odoo_sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default=SYNC_NOT_SYNCED,
+        help_text='Status of sync to Odoo',
+    )
+    quickbooks_sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default=SYNC_NOT_SYNCED,
+        help_text='Status of sync to QuickBooks',
+    )
+
     class Meta:
         ordering = ['-created_at']
         indexes = [

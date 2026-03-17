@@ -17,6 +17,7 @@ from .models import Order, OrderItem
 from .serializers import OrderSerializer, OrderItemSerializer, OrderCreateUpdateSerializer
 from api.timezones import parse_business_datetime_filter_value
 from integrations.models import Integration
+from integrations.models import OrderSyncLog
 from integrations.services import (
     create_odoo_sales_order,
     create_odoo_invoice_record,
@@ -197,13 +198,28 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
         try:
             quickbooks_invoice_id = create_quickbooks_sales_invoice(integration, order)
         except Exception as exc:  # noqa: BLE001
+            OrderSyncLog.objects.create(
+                order=order, integration=integration,
+                target=OrderSyncLog.SyncTarget.QUICKBOOKS,
+                status=OrderSyncLog.SyncStatus.FAILED,
+                error_message=str(exc)[:5000],
+            )
+            order.quickbooks_sync_status = Order.SYNC_FAILED
+            order.save(update_fields=['quickbooks_sync_status'])
             return Response(
                 {'error': f'Failed to create QuickBooks Invoice: {exc}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         order.quickbooks_sales_invoice_id = str(quickbooks_invoice_id)
-        order.save(update_fields=['quickbooks_sales_invoice_id'])
+        order.quickbooks_sync_status = Order.SYNC_SUCCESS
+        order.save(update_fields=['quickbooks_sales_invoice_id', 'quickbooks_sync_status'])
+        OrderSyncLog.objects.create(
+            order=order, integration=integration,
+            target=OrderSyncLog.SyncTarget.QUICKBOOKS,
+            status=OrderSyncLog.SyncStatus.SUCCESS,
+            external_id=str(quickbooks_invoice_id),
+        )
 
         serializer = OrderSerializer(order)
         return Response(serializer.data)
@@ -270,13 +286,28 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
         try:
             odoo_so_id = create_odoo_sales_order(integration, order)
         except Exception as exc:  # noqa: BLE001
+            OrderSyncLog.objects.create(
+                order=order, integration=integration,
+                target=OrderSyncLog.SyncTarget.ODOO_SO,
+                status=OrderSyncLog.SyncStatus.FAILED,
+                error_message=str(exc)[:5000],
+            )
+            order.odoo_sync_status = Order.SYNC_FAILED
+            order.save(update_fields=['odoo_sync_status'])
             return Response(
                 {'error': f'Failed to create Odoo Sales Order: {exc}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         order.odoo_sales_order_id = str(odoo_so_id)
-        order.save(update_fields=['odoo_sales_order_id'])
+        order.odoo_sync_status = Order.SYNC_SUCCESS
+        order.save(update_fields=['odoo_sales_order_id', 'odoo_sync_status'])
+        OrderSyncLog.objects.create(
+            order=order, integration=integration,
+            target=OrderSyncLog.SyncTarget.ODOO_SO,
+            status=OrderSyncLog.SyncStatus.SUCCESS,
+            external_id=str(odoo_so_id),
+        )
 
         serializer = OrderSerializer(order)
         return Response(serializer.data)
@@ -301,6 +332,14 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
         try:
             odoo_invoice_id = create_odoo_invoice_record(integration, order)
         except Exception as exc:  # noqa: BLE001
+            OrderSyncLog.objects.create(
+                order=order, integration=integration,
+                target=OrderSyncLog.SyncTarget.ODOO_INVOICE,
+                status=OrderSyncLog.SyncStatus.FAILED,
+                error_message=str(exc)[:5000],
+            )
+            order.odoo_sync_status = Order.SYNC_FAILED
+            order.save(update_fields=['odoo_sync_status'])
             return Response(
                 {'error': f'Failed to create Odoo Invoice: {exc}'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -308,6 +347,12 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
 
         order.odoo_sales_invoice_id = str(odoo_invoice_id)
         order.save(update_fields=['odoo_sales_invoice_id'])
+        OrderSyncLog.objects.create(
+            order=order, integration=integration,
+            target=OrderSyncLog.SyncTarget.ODOO_INVOICE,
+            status=OrderSyncLog.SyncStatus.SUCCESS,
+            external_id=str(odoo_invoice_id),
+        )
 
         serializer = OrderSerializer(order)
         return Response(serializer.data)

@@ -85,6 +85,7 @@ class OrderSerializer(serializers.ModelSerializer[Order]):
             # Items & Computed
             # Odoo/QuickBooks Integration
             'odoo_sales_order_id', 'odoo_sales_invoice_id', 'quickbooks_sales_invoice_id',
+            'odoo_sync_status', 'quickbooks_sync_status',
 
             # Items & Computed
             'items', 'total_items', 'is_paid', 'is_fulfilled'
@@ -92,6 +93,7 @@ class OrderSerializer(serializers.ModelSerializer[Order]):
         read_only_fields = [
             'id', 'created_at', 'updated_at', 'owner', 'total_items', 'is_paid', 'is_fulfilled',
             'odoo_sales_order_id', 'odoo_sales_invoice_id', 'quickbooks_sales_invoice_id',
+            'odoo_sync_status', 'quickbooks_sync_status',
         ]
 
 

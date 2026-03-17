@@ -796,6 +796,13 @@ def _upsert_shopify_order_from_payload(
             properties={"shopify_line_item_id": line.get("id")},
         )
 
+    # Auto-sync to ERP platforms if enabled
+    if created:
+        try:
+            auto_sync_order_to_erp(order)
+        except Exception:  # noqa: BLE001
+            logger.exception("Auto-sync failed for order %s", order.order_number)
+
     return order, created, False
 
 
@@ -1358,3 +1365,125 @@ def import_shopify_products(
         "skipped": skipped,
         "bundles": bundles,
     }
+
+
+def auto_sync_order_to_erp(order) -> None:
+    """Automatically push an order to all active auto-sync Odoo/QB integrations
+    for its market. Called after order creation (webhook or manual import).
+
+    Sync results are recorded as OrderSyncLog entries and the order's
+    sync status fields are updated."""
+    market_name = order.market.name if order.market_id else None
+    if not market_name:
+        return
+
+    integrations = (
+        Integration.objects
+        .filter(
+            market=market_name,
+            auto_sync_orders=True,
+            status=Integration.IntegrationStatus.ACTIVE,
+        )
+        .select_related('odoo_credentials', 'quickbooks_credentials')
+    )
+
+    for integration in integrations:
+        if integration.type == Integration.IntegrationType.ODOO:
+            _auto_sync_order_to_odoo(order, integration)
+        elif integration.type == Integration.IntegrationType.QUICKBOOKS:
+            _auto_sync_order_to_quickbooks(order, integration)
+
+
+def _auto_sync_order_to_odoo(order, integration: Integration) -> None:
+    from .models import OrderSyncLog
+
+    # Skip if already synced
+    if order.odoo_sales_order_id and order.odoo_sales_invoice_id:
+        return
+
+    order.odoo_sync_status = order.SYNC_PENDING
+    order.save(update_fields=['odoo_sync_status'])
+
+    # Create Sales Order
+    if not order.odoo_sales_order_id:
+        try:
+            so_id = create_odoo_sales_order(integration, order)
+            order.odoo_sales_order_id = str(so_id)
+            OrderSyncLog.objects.create(
+                order=order,
+                integration=integration,
+                target=OrderSyncLog.SyncTarget.ODOO_SO,
+                status=OrderSyncLog.SyncStatus.SUCCESS,
+                external_id=str(so_id),
+            )
+        except Exception as exc:  # noqa: BLE001
+            OrderSyncLog.objects.create(
+                order=order,
+                integration=integration,
+                target=OrderSyncLog.SyncTarget.ODOO_SO,
+                status=OrderSyncLog.SyncStatus.FAILED,
+                error_message=str(exc)[:5000],
+            )
+            order.odoo_sync_status = order.SYNC_FAILED
+            order.save(update_fields=['odoo_sync_status', 'odoo_sales_order_id'])
+            return
+
+    # Create Invoice
+    if not order.odoo_sales_invoice_id:
+        try:
+            inv_id = create_odoo_invoice_record(integration, order)
+            order.odoo_sales_invoice_id = str(inv_id)
+            OrderSyncLog.objects.create(
+                order=order,
+                integration=integration,
+                target=OrderSyncLog.SyncTarget.ODOO_INVOICE,
+                status=OrderSyncLog.SyncStatus.SUCCESS,
+                external_id=str(inv_id),
+            )
+        except Exception as exc:  # noqa: BLE001
+            OrderSyncLog.objects.create(
+                order=order,
+                integration=integration,
+                target=OrderSyncLog.SyncTarget.ODOO_INVOICE,
+                status=OrderSyncLog.SyncStatus.FAILED,
+                error_message=str(exc)[:5000],
+            )
+            order.odoo_sync_status = order.SYNC_FAILED
+            order.save(update_fields=['odoo_sync_status', 'odoo_sales_order_id', 'odoo_sales_invoice_id'])
+            return
+
+    order.odoo_sync_status = order.SYNC_SUCCESS
+    order.save(update_fields=['odoo_sync_status', 'odoo_sales_order_id', 'odoo_sales_invoice_id'])
+
+
+def _auto_sync_order_to_quickbooks(order, integration: Integration) -> None:
+    from .models import OrderSyncLog
+
+    if order.quickbooks_sales_invoice_id:
+        return
+
+    order.quickbooks_sync_status = order.SYNC_PENDING
+    order.save(update_fields=['quickbooks_sync_status'])
+
+    try:
+        invoice_id = create_quickbooks_sales_invoice(integration, order)
+        order.quickbooks_sales_invoice_id = str(invoice_id)
+        order.quickbooks_sync_status = order.SYNC_SUCCESS
+        order.save(update_fields=['quickbooks_sync_status', 'quickbooks_sales_invoice_id'])
+        OrderSyncLog.objects.create(
+            order=order,
+            integration=integration,
+            target=OrderSyncLog.SyncTarget.QUICKBOOKS,
+            status=OrderSyncLog.SyncStatus.SUCCESS,
+            external_id=str(invoice_id),
+        )
+    except Exception as exc:  # noqa: BLE001
+        order.quickbooks_sync_status = order.SYNC_FAILED
+        order.save(update_fields=['quickbooks_sync_status'])
+        OrderSyncLog.objects.create(
+            order=order,
+            integration=integration,
+            target=OrderSyncLog.SyncTarget.QUICKBOOKS,
+            status=OrderSyncLog.SyncStatus.FAILED,
+            error_message=str(exc)[:5000],
+        )
