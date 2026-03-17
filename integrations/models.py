@@ -124,6 +124,7 @@ class OdooCredentials(models.Model):
 
 
 class QuickBooksCredentials(models.Model):
+        
     """Credentials required to connect a QuickBooks company."""
 
     class Environment(models.TextChoices):
@@ -138,6 +139,12 @@ class QuickBooksCredentials(models.Model):
     realm_id = models.CharField(max_length=255)
     client_id = models.CharField(max_length=255)
     client_key = models.CharField(max_length=512)
+    invoice_prefix = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        help_text='Prefix to prepend to invoice numbers, e.g. SHT for SHT1000.',
+    )
     sukhiba_customer_id = models.CharField(
         max_length=255,
         blank=True,

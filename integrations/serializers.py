@@ -113,6 +113,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'tax_id': creds.tax_id,
                 'shipping_fee_account_id': creds.shipping_fee_account_id,
                 'environment': creds.environment,
+                'invoice_prefix': creds.invoice_prefix,
                 'has_client_key': bool(creds.client_key),
             }
 
@@ -239,6 +240,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     'tax_id': merged.get('tax_id', ''),
                     'shipping_fee_account_id': merged.get('shipping_fee_account_id', ''),
                     'environment': merged.get('environment', 'SANDBOX'),
+                    'invoice_prefix': merged.get('invoice_prefix', ''),
                 },
             )
             integration.quickbooks_credentials = creds
@@ -293,6 +295,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'tax_id': creds.tax_id,
                 'shipping_fee_account_id': creds.shipping_fee_account_id,
                 'environment': creds.environment,
+                'invoice_prefix': creds.invoice_prefix,
             }
 
         return {}
