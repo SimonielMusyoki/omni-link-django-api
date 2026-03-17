@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('integrations', '0009_auto_...'),  # Update to last migration name
+        ('integrations', '0008_integration_auto_sync_orders_and_more'),
     ]
 
     operations = [
