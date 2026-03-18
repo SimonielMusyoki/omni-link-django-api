@@ -28,9 +28,6 @@ REQUIRED_CREDENTIAL_FIELDS = {
         'realm_id',
         'client_id',
         'client_key',
-        'sukhiba_customer_id',
-        'pos_customer_id',
-        'ecommerce_customer_id',
     },
 }
 
