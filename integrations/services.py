@@ -737,7 +737,7 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
         # Apply tax if configured
         if creds.tax_id:
             try:
-                line_vals['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+                line_vals['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
 
@@ -753,7 +753,7 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
         }
         if creds.tax_id:
             try:
-                shipping_line['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+                shipping_line['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
         order_lines.append((0, 0, shipping_line))
@@ -877,7 +877,7 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
 
         if creds.tax_id:
             try:
-                line_vals['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+                line_vals['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
 
@@ -893,7 +893,7 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
         }
         if creds.tax_id:
             try:
-                shipping_line['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+                shipping_line['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
         order_lines.append((0, 0, shipping_line))
@@ -1008,6 +1008,49 @@ def _resolve_configured_quickbooks_customer_id(
     return selected_customer
 
 
+def _fetch_qb_sku_map(creds: 'QuickBooksCredentials') -> dict[str, str]:
+    """Return a lowercase-name → QB-item-id mapping for all active QB items.
+
+    Used to resolve Shopify SKUs to QB Item IDs so line items use ``value``
+    (the stable internal ID) rather than ``name`` (which causes silent fallbacks
+    when the name doesn't match exactly).
+    """
+    from urllib.parse import quote as _quote
+    query = _quote('SELECT Id, Name FROM Item WHERE Active = true MAXRESULTS 1000')
+    url = (
+        f'{creds.api_base_url}/v3/company/{creds.realm_id}'
+        f'/query?query={query}&minorversion=75'
+    )
+    resp = _quickbooks_request('GET', url, creds)
+    if resp.status_code != 200:
+        logger.warning('QB item map fetch returned %d — SKU lookup disabled', resp.status_code)
+        return {}
+    items = resp.json().get('QueryResponse', {}).get('Item', [])
+    return {str(i.get('Name', '')).lower(): str(i.get('Id', '')) for i in items}
+
+
+def _resolve_qb_item_ref(
+    sku: str,
+    sku_map: dict[str, str],
+    default_product_id: str,
+) -> dict[str, str] | None:
+    """Return the QB ItemRef dict for a line item.
+
+    Lookup order:
+    1. Exact case-insensitive SKU match in QB items → {'value': id}
+    2. Configured default product               → {'value': default_product_id}
+    3. No match and no default                  → None (QB will omit ItemRef)
+    """
+    if sku:
+        item_id = sku_map.get(sku.lower())
+        if item_id:
+            return {'value': item_id}
+        logger.warning('QB SKU "%s" not found in items list — falling back to default', sku)
+    if default_product_id:
+        return {'value': default_product_id}
+    return None
+
+
 def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> str:
     """Create a sales invoice in QuickBooks and return the QuickBooks invoice ID."""
     creds = getattr(integration, 'quickbooks_credentials', None)
@@ -1017,6 +1060,9 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
     _ensure_qb_environment(creds)
 
     customer_id = _resolve_configured_quickbooks_customer_id(creds, order)
+
+    # Fetch QB items once up-front so we can resolve SKUs to stable item IDs.
+    sku_map = _fetch_qb_sku_map(creds)
 
     endpoint = f'{creds.api_base_url}/v3/company/{creds.realm_id}/invoice?minorversion=75'
 
@@ -1033,12 +1079,13 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
             },
         }
 
-        # Use SKU to match QuickBooks Item by name, fall back to default product
-        sku = item.sku or ''
-        if sku:
-            line['SalesItemLineDetail']['ItemRef'] = {'name': sku}
-        elif creds.default_product_id:
-            line['SalesItemLineDetail']['ItemRef'] = {'value': creds.default_product_id}
+        item_ref = _resolve_qb_item_ref(
+            item.sku or '',
+            sku_map,
+            str(creds.default_product_id or ''),
+        )
+        if item_ref:
+            line['SalesItemLineDetail']['ItemRef'] = item_ref
 
         # Tax code
         if creds.tax_id:
@@ -1063,9 +1110,11 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
             shipping_line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
         lines.append(shipping_line)
 
-    # Invoice number with optional prefix
+    # Invoice number: prefix + Shopify order number with leading '#' stripped.
+    # e.g. prefix="SHT", order_number="#1515" → "SHT1515"
     prefix = str(creds.invoice_prefix or '').strip()
-    doc_number = f'{prefix}{order.order_number}'[:21]
+    raw_number = str(order.order_number).lstrip('#')
+    doc_number = f'{prefix}{raw_number}'[:21]
 
     payload: dict[str, Any] = {
         'DocNumber': doc_number,
@@ -1133,6 +1182,8 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
     sync_token = str(existing_invoice.get('SyncToken') or '0')
 
     # 2. Build updated line items
+    sku_map = _fetch_qb_sku_map(creds)
+
     lines: list[dict[str, Any]] = []
     for item in order.items.all():
         amount = float(item.total_price)
@@ -1146,10 +1197,13 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
             },
         }
 
-        # Use SKU to match QuickBooks Item by name
-        sku = item.sku or ''
-        if sku:
-            line['SalesItemLineDetail']['ItemRef'] = {'name': sku}
+        item_ref = _resolve_qb_item_ref(
+            item.sku or '',
+            sku_map,
+            str(creds.default_product_id or ''),
+        )
+        if item_ref:
+            line['SalesItemLineDetail']['ItemRef'] = item_ref
 
         if creds.tax_id:
             line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
@@ -1174,7 +1228,8 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
         lines.append(shipping_line)
 
     prefix = str(creds.invoice_prefix or '').strip()
-    doc_number = f'{prefix}{order.order_number}'[:21]
+    raw_number = str(order.order_number).lstrip('#')
+    doc_number = f'{prefix}{raw_number}'[:21]
 
     # 3. POST update — must include Id and SyncToken
     payload: dict[str, Any] = {
