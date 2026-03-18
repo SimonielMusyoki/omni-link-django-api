@@ -149,22 +149,25 @@ class QuickBooksOAuthCallbackView(APIView):
 
         # Return an HTML page that signals the opener window via postMessage
         # and then closes itself, so the parent UI can auto-refresh.
-        html = '''
+        from django.conf import settings as django_settings
+        frontend_url = getattr(django_settings, 'FRONTEND_URL', '')
+
+        html = f'''
         <!DOCTYPE html>
         <html>
         <head><title>QuickBooks Connected</title></head>
         <body>
             <p>QuickBooks connected successfully. This window will close automatically.</p>
             <script>
-                if (window.opener) {
+                if (window.opener) {{
                     window.opener.postMessage(
-                        { type: 'quickbooks_connected', success: true },
-                        window.location.origin
+                        {{ type: 'quickbooks_connected', success: true }},
+                        '{frontend_url}'
                     );
                     window.close();
-                } else {
-                    window.location.href = '/integrations?quickbooks_connected=true';
-                }
+                }} else {{
+                    window.location.href = '{frontend_url}/integrations?quickbooks_connected=true';
+                }}
             </script>
         </body>
         </html>
@@ -310,6 +313,26 @@ class IntegrationViewSet(viewsets.ModelViewSet):
         from integrations.services import fetch_quickbooks_options
         try:
             options = fetch_quickbooks_options(integration)
+            return Response(options)
+        except Exception as exc:  # noqa: BLE001
+            return Response(
+                {'detail': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=True, methods=['get'], url_path='odoo-options')
+    def odoo_options(self, request, pk=None):
+        """Fetch live Partners and Products from Odoo for configuration."""
+        integration = self.get_object()
+        if integration.type != Integration.IntegrationType.ODOO:
+            return Response(
+                {'detail': 'This action is only for Odoo integrations.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from integrations.services import fetch_odoo_options
+        try:
+            options = fetch_odoo_options(integration)
             return Response(options)
         except Exception as exc:  # noqa: BLE001
             return Response(

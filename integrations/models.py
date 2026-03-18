@@ -118,6 +118,12 @@ class OdooCredentials(models.Model):
         default='',
         help_text='Odoo account ID for shipping fee journal entries',
     )
+    default_product_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Odoo product.product ID to use when no SKU match is found',
+    )
 
     def __str__(self):
         return f'Odoo creds for {self.integration}'
@@ -177,6 +183,12 @@ class QuickBooksCredentials(models.Model):
         blank=True,
         default='',
         help_text='QuickBooks item/account ID for shipping fee line items',
+    )
+    default_product_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='QuickBooks Item ID to use when no SKU match is found',
     )
     environment = models.CharField(
         max_length=20,

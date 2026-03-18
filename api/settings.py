@@ -221,6 +221,9 @@ CORS_ALLOW_CREDENTIALS = True
 # Example: https://app.uncoverskincare.co
 CSRF_TRUSTED_ORIGINS = _parse_csv_env(config('CSRF_TRUSTED_ORIGINS', default=''))
 
+# Frontend URL (used for OAuth callback redirects)
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:5173').rstrip('/')
+
 # Google OAuth Configuration
 GOOGLE_OAUTH_CLIENT_ID = config('GOOGLE_OAUTH_CLIENT_ID', default='')
 GOOGLE_OAUTH_CLIENT_SECRET = config('GOOGLE_OAUTH_CLIENT_SECRET', default='')

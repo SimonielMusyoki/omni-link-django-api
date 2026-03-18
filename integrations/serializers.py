@@ -95,6 +95,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'ecommerce_partner_id': creds.ecommerce_partner_id,
                 'tax_id': creds.tax_id,
                 'shipping_fee_account_id': creds.shipping_fee_account_id,
+                'default_product_id': creds.default_product_id,
                 'has_api_key': bool(creds.api_key),
             }
 
@@ -116,6 +117,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'ecommerce_customer_id': creds.ecommerce_customer_id,
                 'tax_id': creds.tax_id,
                 'shipping_fee_account_id': creds.shipping_fee_account_id,
+                'default_product_id': creds.default_product_id,
                 'environment': creds.environment,
                 'invoice_prefix': creds.invoice_prefix,
                 'has_client_key': bool(creds.client_key),
@@ -228,6 +230,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     'ecommerce_partner_id': merged['ecommerce_partner_id'],
                     'tax_id': merged.get('tax_id', ''),
                     'shipping_fee_account_id': merged.get('shipping_fee_account_id', ''),
+                    'default_product_id': merged.get('default_product_id', ''),
                 },
             )
             integration.odoo_credentials = creds
@@ -245,6 +248,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     'ecommerce_customer_id': merged.get('ecommerce_customer_id', ''),
                     'tax_id': merged.get('tax_id', ''),
                     'shipping_fee_account_id': merged.get('shipping_fee_account_id', ''),
+                    'default_product_id': merged.get('default_product_id', ''),
                     'environment': merged.get('environment', 'SANDBOX'),
                     'invoice_prefix': merged.get('invoice_prefix', ''),
                 },
@@ -290,6 +294,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'ecommerce_partner_id': creds.ecommerce_partner_id,
                 'tax_id': creds.tax_id,
                 'shipping_fee_account_id': creds.shipping_fee_account_id,
+                'default_product_id': creds.default_product_id,
             }
 
         if integration_type == Integration.IntegrationType.QUICKBOOKS:
@@ -305,6 +310,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'ecommerce_customer_id': creds.ecommerce_customer_id,
                 'tax_id': creds.tax_id,
                 'shipping_fee_account_id': creds.shipping_fee_account_id,
+                'default_product_id': creds.default_product_id,
                 'environment': creds.environment,
                 'invoice_prefix': creds.invoice_prefix,
                 # OAuth tokens are backend-managed; never expose them in API responses

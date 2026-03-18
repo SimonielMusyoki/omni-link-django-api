@@ -298,10 +298,156 @@ def fetch_quickbooks_options(integration: Integration) -> dict[str, list[dict[st
                 'name': display,
             })
 
+    # 3. Fetch Items (products) for Default Product dropdown
+    item_query = quote('SELECT Id, Name, Type FROM Item WHERE Active = true MAXRESULTS 1000')
+    item_url = f'{creds.api_base_url}/v3/company/{creds.realm_id}/query?query={item_query}&minorversion=75'
+    item_resp = _quickbooks_request('GET', item_url, creds)
+
+    items = []
+    if item_resp.status_code == 200:
+        data = item_resp.json().get('QueryResponse', {})
+        for i in data.get('Item', []):
+            item_type = str(i.get('Type', ''))
+            name = str(i.get('Name', ''))
+            display = f'{name} ({item_type})' if item_type else name
+            items.append({
+                'id': str(i.get('Id', '')),
+                'name': display,
+            })
+
     return {
         'customers': sorted(customers, key=lambda x: x['name'].lower()),
         'tax_codes': sorted(tax_codes, key=lambda x: x['name'].lower()),
+        'items': sorted(items, key=lambda x: x['name'].lower()),
     }
+
+
+def fetch_odoo_options(integration: Integration) -> dict[str, list[dict[str, str]]]:
+    """Fetch partners and products from Odoo for the config modal dropdowns."""
+    creds = getattr(integration, 'odoo_credentials', None)
+    if not creds:
+        raise ValueError('Odoo credentials not configured.')
+
+    base_url = creds.server_url.rstrip('/')
+    transport = _OdooTimeoutTransport(timeout=30)
+    common = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/common', transport=transport)
+
+    try:
+        uid = cast(
+            int | bool,
+            common.authenticate(creds.database_url, creds.email, creds.api_key, {}),
+        )
+    except (xmlrpc_client.Fault, xmlrpc_client.ProtocolError, OSError) as exc:
+        raise ValueError(f'Odoo authentication failed: {exc}') from exc
+
+    if not uid:
+        raise ValueError('Odoo authentication failed. Check credentials.')
+
+    models_proxy = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/object', transport=transport)
+    uid_int = cast(int, uid)
+
+    # 1. Fetch Partners (customers)
+    partners = []
+    try:
+        partner_ids = cast(
+            list[int],
+            _odoo_execute(
+                models_proxy, creds.database_url, uid_int, creds.api_key,
+                'res.partner', 'search',
+                [[['customer_rank', '>', 0]]],
+                {'limit': 500},
+            ),
+        )
+        if partner_ids:
+            partner_records = cast(
+                list[dict[str, Any]],
+                _odoo_execute(
+                    models_proxy, creds.database_url, uid_int, creds.api_key,
+                    'res.partner', 'read',
+                    [partner_ids],
+                    {'fields': ['id', 'name']},
+                ),
+            )
+            for p in partner_records:
+                partners.append({
+                    'id': str(p.get('id', '')),
+                    'name': str(p.get('name', '')),
+                })
+    except Exception:  # noqa: BLE001
+        logger.warning('Failed to fetch Odoo partners for integration %s', integration.id)
+
+    # 2. Fetch Products (product.product)
+    products = []
+    try:
+        product_ids = cast(
+            list[int],
+            _odoo_execute(
+                models_proxy, creds.database_url, uid_int, creds.api_key,
+                'product.product', 'search',
+                [[['active', '=', True]]],
+                {'limit': 500},
+            ),
+        )
+        if product_ids:
+            product_records = cast(
+                list[dict[str, Any]],
+                _odoo_execute(
+                    models_proxy, creds.database_url, uid_int, creds.api_key,
+                    'product.product', 'read',
+                    [product_ids],
+                    {'fields': ['id', 'name', 'default_code']},
+                ),
+            )
+            for pr in product_records:
+                name = str(pr.get('name', ''))
+                sku = str(pr.get('default_code', '') or '')
+                display = f'{name} [{sku}]' if sku else name
+                products.append({
+                    'id': str(pr.get('id', '')),
+                    'name': display,
+                })
+    except Exception:  # noqa: BLE001
+        logger.warning('Failed to fetch Odoo products for integration %s', integration.id)
+
+    # 3. Fetch Taxes (account.tax)
+    tax_codes = []
+    try:
+        tax_ids = cast(
+            list[int],
+            _odoo_execute(
+                models_proxy, creds.database_url, uid_int, creds.api_key,
+                'account.tax', 'search',
+                [[['active', '=', True], ['type_tax_use', '=', 'sale']]],
+                {'limit': 500},
+            ),
+        )
+        if tax_ids:
+            tax_records = cast(
+                list[dict[str, Any]],
+                _odoo_execute(
+                    models_proxy, creds.database_url, uid_int, creds.api_key,
+                    'account.tax', 'read',
+                    [tax_ids],
+                    {'fields': ['id', 'name', 'description']},
+                ),
+            )
+            for t in tax_records:
+                name = str(t.get('name', ''))
+                desc = str(t.get('description', '') or '')
+                display = f'{name} - {desc}' if desc and desc != name else name
+                tax_codes.append({
+                    'id': str(t.get('id', '')),
+                    'name': display,
+                })
+    except Exception:  # noqa: BLE001
+        logger.warning('Failed to fetch Odoo taxes for integration %s', integration.id)
+
+    return {
+        'partners': sorted(partners, key=lambda x: x['name'].lower()),
+        'products': sorted(products, key=lambda x: x['name'].lower()),
+        'tax_codes': sorted(tax_codes, key=lambda x: x['name'].lower()),
+    }
+
 
 
 def test_integration_connection(integration: Integration):
@@ -460,9 +606,9 @@ def _resolve_configured_odoo_partner_id(creds: OdooCredentials, order: Order) ->
     raw_tags = (order.shopify_tags or '').lower()
     tags = {tag.strip() for tag in raw_tags.split(',') if tag.strip()}
 
-    if 'origin:sukhiba' in tags:
+    if 'origin:sukhiba' in tags or 'origin:flowcart' in tags:
         selected_partner = (creds.sukhiba_partner_id or '').strip()
-        source_label = 'origin:sukhiba'
+        source_label = 'Whatsapp'
     elif order.order_channel == Order.CHANNEL_POS:
         selected_partner = (creds.pos_partner_id or '').strip()
         source_label = 'POS channel'
@@ -503,6 +649,11 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
         if odoo_pid:
             line_vals['product_id'] = odoo_pid
+        elif creds.default_product_id:
+            try:
+                line_vals['product_id'] = int(creds.default_product_id)
+            except (ValueError, TypeError):
+                pass
 
         # Apply tax if configured
         if creds.tax_id:
@@ -564,6 +715,11 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
         if odoo_pid:
             line_vals['product_id'] = odoo_pid
+        elif creds.default_product_id:
+            try:
+                line_vals['product_id'] = int(creds.default_product_id)
+            except (ValueError, TypeError):
+                pass
 
         # Apply tax if configured
         if creds.tax_id:
@@ -634,6 +790,11 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
         if odoo_pid:
             line_vals['product_id'] = odoo_pid
+        elif creds.default_product_id:
+            try:
+                line_vals['product_id'] = int(creds.default_product_id)
+            except (ValueError, TypeError):
+                pass
 
         if creds.tax_id:
             try:
@@ -696,6 +857,11 @@ def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
         if odoo_pid:
             line_vals['product_id'] = odoo_pid
+        elif creds.default_product_id:
+            try:
+                line_vals['product_id'] = int(creds.default_product_id)
+            except (ValueError, TypeError):
+                pass
 
         if creds.tax_id:
             try:
@@ -744,9 +910,9 @@ def _resolve_configured_quickbooks_customer_id(
     raw_tags = (order.shopify_tags or '').lower()
     tags = {tag.strip() for tag in raw_tags.split(',') if tag.strip()}
 
-    if 'origin:sukhiba' in tags:
+    if 'origin:sukhiba' in tags or 'origin:flowcart' in tags:
         selected_customer = (creds.sukhiba_customer_id or '').strip()
-        source_label = 'origin:sukhiba'
+        source_label = 'Whatsapp'
     elif order.order_channel == Order.CHANNEL_POS:
         selected_customer = (creds.pos_customer_id or '').strip()
         source_label = 'POS channel'
@@ -786,10 +952,12 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
             },
         }
 
-        # Use SKU to match QuickBooks Item by name
+        # Use SKU to match QuickBooks Item by name, fall back to default product
         sku = item.sku or ''
         if sku:
             line['SalesItemLineDetail']['ItemRef'] = {'name': sku}
+        elif creds.default_product_id:
+            line['SalesItemLineDetail']['ItemRef'] = {'value': creds.default_product_id}
 
         # Tax code
         if creds.tax_id:
@@ -1015,14 +1183,14 @@ def _resolve_order_channel(order_payload: dict[str, Any]) -> str:
 
     Priority:
     1) POS order -> POS
-    2) tags contain origin:sukhiba -> WHATSAPP
+    2) tags contain origin:sukhiba or origin:flowcart -> WHATSAPP
     3) default -> WEBSITE
     """
     if _is_pos_order(order_payload):
         return Order.CHANNEL_POS
 
     tags = _extract_tags(order_payload)
-    if "origin:sukhiba" in tags:
+    if "origin:sukhiba" in tags or "origin:flowcart" in tags:
         return Order.CHANNEL_WHATSAPP
 
     return Order.CHANNEL_WEBSITE
