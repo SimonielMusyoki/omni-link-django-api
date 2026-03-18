@@ -16,12 +16,13 @@ from integrations.models import (
     QuickBooksCredentials,
     ShopifyCredentials,
     ShopifyWebhookDelivery,
+    ProductMarketMapping,
 )
 from integrations.services import _resolve_order_channel, _normalize_market_and_currency
 from integrations.services import _resolve_configured_odoo_partner_id
 from integrations.services import _resolve_configured_quickbooks_customer_id, create_quickbooks_sales_invoice
 from orders.models import Order
-from products.models import Product, Warehouse
+from products.models import Product, Category, Market, Warehouse
 
 User = get_user_model()
 
@@ -247,19 +248,33 @@ class IntegrationApiTests(APITestCase):
             status='ACTIVE',
             warehouse=self.warehouse,
         )
+        from django.utils import timezone
+        from datetime import timedelta
         QuickBooksCredentials.objects.create(
             integration=integration,
             realm_id='realm',
             client_id='client',
             client_key='key',
+            access_token='valid-token',
+            refresh_token='refresh-token',
+            token_expiry=timezone.now() + timedelta(hours=1),
         )
 
-        response = self.client.post(
-            f'/api/integrations/{integration.id}/test-connection/'
-        )
+        with patch('integrations.services.requests.request') as mock_req:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {
+                'CompanyInfo': {'CompanyName': 'Test Company'}
+            }
+            mock_req.return_value = mock_resp
+
+            response = self.client.post(
+                f'/api/integrations/{integration.id}/test-connection/'
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data['success'])
+        self.assertIn('Test Company', response.data['message'])
 
     def test_reject_missing_shopify_api_secret(self):
         response = self.client.post(
@@ -430,8 +445,9 @@ class QuickBooksCustomerRoutingRulesTests(APITestCase):
 
 
 class QuickBooksInvoiceCreationTests(APITestCase):
-    @patch('integrations.services.requests.post')
-    def test_create_quickbooks_sales_invoice_uses_product_item_ref(self, post_mock):
+    @patch('integrations.services.requests.request')
+    @patch('integrations.services._ensure_quickbooks_token', return_value='valid-token')
+    def test_create_quickbooks_sales_invoice_uses_product_item_ref(self, _token_mock, request_mock):
         class QuickBooksCreds:
             realm_id = 'realm-001'
             client_id = 'client-001'
@@ -440,6 +456,13 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             sukhiba_customer_id = '7001'
             pos_customer_id = '7002'
             ecommerce_customer_id = '7003'
+            access_token = 'valid-token'
+            refresh_token = 'refresh-token'
+            token_expiry = None
+            tax_id = ''
+            shipping_fee_account_id = ''
+            invoice_prefix = ''
+            api_base_url = 'https://sandbox-quickbooks.api.intuit.com'
 
         class IntegrationStub:
             quickbooks_credentials = QuickBooksCreds()
@@ -465,21 +488,103 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             shopify_tags = 'origin:sukhiba'
             order_channel = Order.CHANNEL_WEBSITE
             items = ItemManagerStub()
+            market_id = None
+            shipping_price = 0
 
         response = MagicMock()
         response.status_code = 200
         response.json.return_value = {'Invoice': {'Id': 'INV-9001'}}
-        post_mock.return_value = response
+        request_mock.return_value = response
 
         invoice_id = create_quickbooks_sales_invoice(IntegrationStub(), OrderStub())
 
         self.assertEqual(invoice_id, 'INV-9001')
-        _, kwargs = post_mock.call_args
-        self.assertEqual(kwargs['headers']['Authorization'], 'Bearer token-001')
+        _, kwargs = request_mock.call_args
+        self.assertEqual(kwargs['headers']['Authorization'], 'Bearer valid-token')
         self.assertEqual(kwargs['json']['CustomerRef']['value'], '7001')
         self.assertEqual(
             kwargs['json']['Line'][0]['SalesItemLineDetail']['ItemRef']['value'],
             '501',
+        )
+
+    @patch('integrations.services.requests.request')
+    @patch('integrations.services._ensure_quickbooks_token', return_value='valid-token')
+    def test_quickbooks_invoice_includes_prefix_tax_shipping(self, _token_mock, request_mock):
+        """Verify invoice creation includes prefix, tax code, and shipping line."""
+        class QuickBooksCreds:
+            realm_id = 'realm-001'
+            client_id = 'client-001'
+            client_key = 'token-001'
+            environment = 'SANDBOX'
+            sukhiba_customer_id = '7001'
+            pos_customer_id = '7002'
+            ecommerce_customer_id = '7003'
+            access_token = 'valid-token'
+            refresh_token = 'refresh-token'
+            token_expiry = None
+            tax_id = 'TAX-001'
+            shipping_fee_account_id = 'SHIP-001'
+            invoice_prefix = 'SHT'
+            api_base_url = 'https://sandbox-quickbooks.api.intuit.com'
+
+        class IntegrationStub:
+            quickbooks_credentials = QuickBooksCreds()
+
+        class ProductStub:
+            quickbooks_product_id = '501'
+
+        class ItemStub:
+            product_name = 'Aloe Gel'
+            quantity = 2
+            unit_price = '15.00'
+            total_price = '30.00'
+            product_id = 1
+            product = ProductStub()
+
+        class ItemManagerStub:
+            @staticmethod
+            def all():
+                return [ItemStub()]
+
+        class OrderStub:
+            order_number = 'ORD-5555'
+            shopify_tags = ''
+            order_channel = Order.CHANNEL_WEBSITE
+            items = ItemManagerStub()
+            market_id = None
+            shipping_price = '5.00'
+
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {'Invoice': {'Id': 'INV-5555'}}
+        request_mock.return_value = response
+
+        invoice_id = create_quickbooks_sales_invoice(IntegrationStub(), OrderStub())
+        self.assertEqual(invoice_id, 'INV-5555')
+
+        _, kwargs = request_mock.call_args
+        payload = kwargs['json']
+
+        # Invoice prefix
+        self.assertTrue(payload['DocNumber'].startswith('SHT'))
+
+        # Tax code on product line
+        self.assertEqual(
+            payload['Line'][0]['SalesItemLineDetail']['TaxCodeRef']['value'],
+            'TAX-001',
+        )
+
+        # Shipping line item
+        shipping_line = payload['Line'][-1]
+        self.assertEqual(shipping_line['Description'], 'Shipping')
+        self.assertEqual(shipping_line['Amount'], 5.0)
+        self.assertEqual(
+            shipping_line['SalesItemLineDetail']['ItemRef']['value'],
+            'SHIP-001',
+        )
+        self.assertEqual(
+            shipping_line['SalesItemLineDetail']['TaxCodeRef']['value'],
+            'TAX-001',
         )
 
 
@@ -800,3 +905,335 @@ class ShopifyWebhookApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class QuickBooksOAuthTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='oauth-test@example.com',
+            password='secret123',
+            role=UserRole.OWNER,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.warehouse = Warehouse.objects.create(
+            name='OAuth Warehouse',
+            location='Nairobi',
+            address='Nairobi, Kenya',
+            capacity=10000,
+            manager=self.user,
+        )
+        self.integration = Integration.objects.create(
+            name='Test QuickBooks',
+            type='QUICKBOOKS',
+            market='Kenya',
+            status='ACTIVE',
+            warehouse=self.warehouse,
+        )
+        self.creds = QuickBooksCredentials.objects.create(
+            integration=self.integration,
+            realm_id='realm-test',
+            client_id='client-test',
+            client_key='secret-test',
+        )
+
+    @patch('integrations.views.requests.post')
+    def test_quickbooks_oauth_callback_exchanges_code(self, mock_post):
+        """OAuth callback should exchange code for tokens and save them."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            'access_token': 'new-access-token',
+            'refresh_token': 'new-refresh-token',
+            'expires_in': 3600,
+        }
+        mock_post.return_value = mock_resp
+
+        # Set the CSRF state nonce that must match
+        csrf_token = 'test-csrf-nonce'
+        self.creds.oauth_state = csrf_token
+        self.creds.save(update_fields=['oauth_state'])
+
+        # Use a fresh APIClient without auth (callback is AllowAny)
+        anon_client = APIClient()
+        response = anon_client.get(
+            '/api/integrations/quickbooks/callback/',
+            {
+                'code': 'auth-code-123',
+                'state': f'{self.integration.id}:{csrf_token}',
+                'realmId': 'realm-updated',
+            },
+        )
+
+        # Should return HTML page with postMessage script
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'quickbooks_connected', response.content)
+
+        self.creds.refresh_from_db()
+        self.assertEqual(self.creds.access_token, 'new-access-token')
+        self.assertEqual(self.creds.refresh_token, 'new-refresh-token')
+        self.assertEqual(self.creds.realm_id, 'realm-updated')
+        self.assertIsNotNone(self.creds.token_expiry)
+        self.assertEqual(self.creds.oauth_state, '')  # consumed
+
+    def test_quickbooks_oauth_callback_rejects_missing_code(self):
+        anon_client = APIClient()
+        response = anon_client.get(
+            '/api/integrations/quickbooks/callback/',
+            {'state': f'{self.integration.id}:some-token'},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_quickbooks_oauth_callback_rejects_bad_csrf_token(self):
+        """Callback should reject if CSRF state token doesn't match."""
+        self.creds.oauth_state = 'correct-nonce'
+        self.creds.save(update_fields=['oauth_state'])
+
+        anon_client = APIClient()
+        response = anon_client.get(
+            '/api/integrations/quickbooks/callback/',
+            {
+                'code': 'auth-code-123',
+                'state': f'{self.integration.id}:wrong-nonce',
+            },
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_quickbooks_auth_url_action_returns_url(self):
+        response = self.client.post(
+            f'/api/integrations/{self.integration.id}/quickbooks-auth-url/',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('auth_url', response.data)
+        self.assertIn('client-test', response.data['auth_url'])
+        self.assertIn('com.intuit.quickbooks.accounting', response.data['auth_url'])
+
+
+class QuickBooksTokenRefreshTests(APITestCase):
+    @patch('integrations.services.requests.post')
+    def test_token_refresh_on_expired_token(self, mock_post):
+        """_ensure_quickbooks_token should refresh when token is expired."""
+        from integrations.services import _ensure_quickbooks_token
+        from django.utils import timezone
+        from datetime import timedelta
+
+        integration = Integration.objects.create(
+            name='Refresh Test', type='QUICKBOOKS', market='Kenya', status='ACTIVE',
+        )
+        creds = QuickBooksCredentials.objects.create(
+            integration=integration,
+            realm_id='realm',
+            client_id='client-id',
+            client_key='client-secret',
+            access_token='old-access-token',
+            refresh_token='valid-refresh-token',
+            token_expiry=timezone.now() - timedelta(hours=1),  # expired
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            'access_token': 'fresh-access-token',
+            'refresh_token': 'fresh-refresh-token',
+            'expires_in': 3600,
+        }
+        mock_post.return_value = mock_resp
+
+        result = _ensure_quickbooks_token(creds)
+
+        self.assertEqual(result, 'fresh-access-token')
+        creds.refresh_from_db()
+        self.assertEqual(creds.access_token, 'fresh-access-token')
+        self.assertEqual(creds.refresh_token, 'fresh-refresh-token')
+
+    def test_missing_refresh_token_raises_error(self):
+        from integrations.services import _ensure_quickbooks_token
+
+        integration = Integration.objects.create(
+            name='No Refresh', type='QUICKBOOKS', market='Kenya', status='ACTIVE',
+        )
+        creds = QuickBooksCredentials.objects.create(
+            integration=integration,
+            realm_id='realm',
+            client_id='client-id',
+            client_key='client-secret',
+            access_token='',
+            refresh_token='',
+        )
+
+        with self.assertRaisesMessage(ValueError, 'OAuth tokens are missing'):
+            _ensure_quickbooks_token(creds)
+
+
+class QuickBooksDuplicateInvoiceGuardTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='dup-guard@example.com',
+            password='secret123',
+            role=UserRole.OWNER,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.warehouse = Warehouse.objects.create(
+            name='Dup Guard Warehouse',
+            location='Nairobi',
+            address='Nairobi, Kenya',
+            capacity=10000,
+            manager=self.user,
+        )
+        self.market = Market.objects.get_or_create(
+            name='Kenya', defaults={'code': 'KE', 'currency': 'KES'},
+        )[0]
+        self.integration = Integration.objects.create(
+            name='Kenya QuickBooks',
+            type='QUICKBOOKS',
+            market='Kenya',
+            status='ACTIVE',
+            warehouse=self.warehouse,
+        )
+        QuickBooksCredentials.objects.create(
+            integration=self.integration,
+            realm_id='realm',
+            client_id='client',
+            client_key='key',
+        )
+
+    def test_push_to_quickbooks_rejects_duplicate(self):
+        """Should return 409 when order already has a QB invoice ID."""
+        order = Order.objects.create(
+            order_number='ORD-DUP-001',
+            shopify_order_id='SHOP-DUP-001',
+            shopify_order_number='S-DUP-001',
+            market=self.market,
+            customer_name='Test',
+            customer_email='dup@example.com',
+            subtotal_price='100.00',
+            total_amount='100.00',
+            shipping_address_line1='Road 1',
+            shipping_city='Nairobi',
+            shipping_country='Kenya',
+            owner=self.user,
+            quickbooks_sales_invoice_id='EXISTING-INV-123',
+        )
+
+        response = self.client.post(
+            f'/api/orders/{order.id}/push-to-quickbooks/',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn('already exists', response.data['error'])
+
+
+class QuickBooksRetryTests(APITestCase):
+    @patch('integrations.services.time.sleep')
+    @patch('integrations.services._ensure_quickbooks_token', return_value='valid-token')
+    @patch('integrations.services.requests.request')
+    def test_quickbooks_retry_on_429(self, mock_request, _token_mock, _sleep_mock):
+        """_quickbooks_request should retry on 429 and succeed on next attempt."""
+        from integrations.services import _quickbooks_request
+
+        integration = Integration.objects.create(
+            name='Retry Test', type='QUICKBOOKS', market='Kenya', status='ACTIVE',
+        )
+        creds = QuickBooksCredentials.objects.create(
+            integration=integration,
+            realm_id='realm',
+            client_id='client',
+            client_key='key',
+            access_token='token',
+            refresh_token='refresh',
+        )
+
+        rate_limited_resp = MagicMock()
+        rate_limited_resp.status_code = 429
+
+        success_resp = MagicMock()
+        success_resp.status_code = 200
+        success_resp.json.return_value = {'Invoice': {'Id': 'INV-RETRY'}}
+
+        mock_request.side_effect = [rate_limited_resp, success_resp]
+
+        result = _quickbooks_request('POST', 'https://example.com/api', creds)
+
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(mock_request.call_count, 2)
+
+
+class QuickBooksPerMarketMappingTests(APITestCase):
+    @patch('integrations.services.requests.request')
+    @patch('integrations.services._ensure_quickbooks_token', return_value='valid-token')
+    def test_quickbooks_invoice_uses_market_product_mapping(self, _token_mock, request_mock):
+        """Per-market product mapping should override global product quickbooks_product_id."""
+        market = Market.objects.get_or_create(
+            name='Nigeria',
+            defaults={'code': 'NG', 'currency': 'NGN'},
+        )[0]
+        cat = Category.objects.create(name='Skincare')
+        product = Product.objects.create(
+            name='Test Gel',
+            sku='SKU-MAP',
+            category=cat,
+            price='25.00',
+            quickbooks_product_id='GLOBAL-500',
+        )
+
+        integration = Integration.objects.create(
+            name='NG QuickBooks', type='QUICKBOOKS', market='Nigeria', status='ACTIVE',
+        )
+        creds = QuickBooksCredentials.objects.create(
+            integration=integration,
+            realm_id='realm',
+            client_id='client',
+            client_key='key',
+            access_token='token',
+            refresh_token='refresh',
+            sukhiba_customer_id='9001',
+            pos_customer_id='9002',
+            ecommerce_customer_id='9003',
+        )
+        ProductMarketMapping.objects.create(
+            product=product,
+            market=market,
+            quickbooks_product_id='MARKET-777',
+        )
+
+        _product = product  # capture in closure-friendly variable
+
+        class ItemStub:
+            product_name = 'Test Gel'
+            quantity = 1
+            unit_price = '25.00'
+            total_price = '25.00'
+            product_id = _product.id
+
+            @property
+            def product(self):
+                return _product
+
+        class ItemManagerStub:
+            @staticmethod
+            def all():
+                return [ItemStub()]
+
+        class OrderStub:
+            order_number = 'ORD-MAP-1'
+            shopify_tags = ''
+            order_channel = Order.CHANNEL_WEBSITE
+            items = ItemManagerStub()
+            market_id = market.id
+            shipping_price = 0
+
+        class IntegrationStub:
+            quickbooks_credentials = creds
+
+        response_mock = MagicMock()
+        response_mock.status_code = 200
+        response_mock.json.return_value = {'Invoice': {'Id': 'INV-MAP'}}
+        request_mock.return_value = response_mock
+
+        invoice_id = create_quickbooks_sales_invoice(IntegrationStub(), OrderStub())
+        self.assertEqual(invoice_id, 'INV-MAP')
+
+        _, kwargs = request_mock.call_args
+        item_ref = kwargs['json']['Line'][0]['SalesItemLineDetail']['ItemRef']['value']
+        self.assertEqual(item_ref, 'MARKET-777')

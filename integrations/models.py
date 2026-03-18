@@ -138,7 +138,10 @@ class QuickBooksCredentials(models.Model):
     )
     realm_id = models.CharField(max_length=255)
     client_id = models.CharField(max_length=255)
-    client_key = models.CharField(max_length=512)
+    client_key = models.CharField(
+        max_length=512,
+        help_text='OAuth 2.0 Client Secret (named client_key for legacy compatibility)',
+    )
     invoice_prefix = models.CharField(
         max_length=20,
         blank=True,
@@ -180,6 +183,39 @@ class QuickBooksCredentials(models.Model):
         choices=Environment.choices,
         default=Environment.SANDBOX,
     )
+    access_token = models.TextField(
+        blank=True,
+        default='',
+        help_text='OAuth 2.0 access token (short-lived, ~1 hour)',
+    )
+    refresh_token = models.TextField(
+        blank=True,
+        default='',
+        help_text='OAuth 2.0 refresh token (long-lived, ~100 days)',
+    )
+    token_expiry = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When the current access token expires',
+    )
+    redirect_uri = models.URLField(
+        blank=True,
+        default='',
+        help_text='OAuth redirect URI used during authorization',
+    )
+    oauth_state = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text='Cryptographic nonce for OAuth CSRF protection',
+    )
+
+    @property
+    def api_base_url(self) -> str:
+        """Return the QuickBooks API base URL for the configured environment."""
+        if self.environment == self.Environment.SANDBOX:
+            return 'https://sandbox-quickbooks.api.intuit.com'
+        return 'https://quickbooks.api.intuit.com'
 
     def __str__(self):
         return f'QuickBooks creds for {self.integration}'

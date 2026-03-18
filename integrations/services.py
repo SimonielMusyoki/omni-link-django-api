@@ -2,8 +2,9 @@
 
 # pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportAttributeAccessIssue=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnusedFunction=false, reportUnusedVariable=false, reportUnnecessaryCast=false
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
+import time
 from typing import Any, cast
 from urllib.parse import urlparse
 from xmlrpc import client as xmlrpc_client
@@ -20,9 +21,13 @@ from django.utils import timezone
 from orders.models import Order, OrderItem
 from products.models import Product, Category, ProductBundle, Market
 
-from .models import Integration, OdooCredentials, QuickBooksCredentials, ShopifyWebhookDelivery
+from .models import Integration, OdooCredentials, ProductMarketMapping, QuickBooksCredentials, ShopifyWebhookDelivery
 
 logger = logging.getLogger(__name__)
+
+# Intuit OAuth / API constants
+INTUIT_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
+INTUIT_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
 
 
 def _test_shopify(integration: Integration):
@@ -53,8 +58,10 @@ def _test_odoo(integration: Integration):
         return False, 'Odoo credentials not configured.'
 
     try:
+        transport = _OdooTimeoutTransport(timeout=15)
         common = xmlrpc_client.ServerProxy(
-            f"{creds.server_url.rstrip('/')}/xmlrpc/2/common"
+            f"{creds.server_url.rstrip('/')}/xmlrpc/2/common",
+            transport=transport,
         )
         uid = common.authenticate(
             creds.database_url,
@@ -62,7 +69,7 @@ def _test_odoo(integration: Integration):
             creds.api_key,
             {},
         )
-    except Exception as exc:  # noqa: BLE001
+    except (xmlrpc_client.Fault, xmlrpc_client.ProtocolError, OSError) as exc:
         return False, f'Odoo connection failed: {exc}'
 
     if uid:
@@ -70,16 +77,185 @@ def _test_odoo(integration: Integration):
     return False, 'Odoo authentication failed. Check database/email/API key.'
 
 
+def _ensure_quickbooks_token(creds: QuickBooksCredentials) -> str:
+    """Return a valid access token, refreshing if expired.
+
+    Uses select_for_update() to prevent concurrent refresh races — Intuit
+    rotates refresh tokens, so two simultaneous refreshes would invalidate
+    each other.
+    """
+    # Fast path: token still valid (with 5-min safety buffer)
+    if (
+        creds.access_token
+        and creds.token_expiry
+        and timezone.now() < creds.token_expiry - timedelta(minutes=5)
+    ):
+        return creds.access_token
+
+    if not creds.refresh_token:
+        raise ValueError(
+            'QuickBooks OAuth tokens are missing. '
+            'Please reconnect via the QuickBooks authorization flow.'
+        )
+
+    # Lock the row to prevent concurrent refreshes
+    with transaction.atomic():
+        locked_creds = QuickBooksCredentials.objects.select_for_update().get(pk=creds.pk)
+
+        # Double-check: another thread may have refreshed while we waited
+        if (
+            locked_creds.access_token
+            and locked_creds.token_expiry
+            and timezone.now() < locked_creds.token_expiry - timedelta(minutes=5)
+        ):
+            # Sync the caller's reference
+            creds.access_token = locked_creds.access_token
+            creds.token_expiry = locked_creds.token_expiry
+            return locked_creds.access_token
+
+        auth_header = base64.b64encode(
+            f'{locked_creds.client_id}:{locked_creds.client_key}'.encode()
+        ).decode()
+
+        try:
+            resp = requests.post(
+                INTUIT_TOKEN_URL,
+                headers={
+                    'Authorization': f'Basic {auth_header}',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                data={
+                    'grant_type': 'refresh_token',
+                    'refresh_token': locked_creds.refresh_token,
+                },
+                timeout=15,
+            )
+        except requests.RequestException as exc:
+            raise ValueError(f'QuickBooks token refresh request failed: {exc}')
+
+        if resp.status_code >= 400:
+            logger.error(
+                'QuickBooks token refresh failed: status=%d body=%s',
+                resp.status_code,
+                resp.text[:500],
+            )
+            raise ValueError(
+                'QuickBooks token refresh failed. Please reconnect via the authorization flow.'
+            )
+
+        data = resp.json()
+        locked_creds.access_token = data['access_token']
+        locked_creds.refresh_token = data.get('refresh_token', locked_creds.refresh_token)
+        locked_creds.token_expiry = timezone.now() + timedelta(
+            seconds=data.get('expires_in', 3600)
+        )
+        locked_creds.save(update_fields=['access_token', 'refresh_token', 'token_expiry'])
+
+        # Sync the caller's in-memory reference
+        creds.access_token = locked_creds.access_token
+        creds.refresh_token = locked_creds.refresh_token
+        creds.token_expiry = locked_creds.token_expiry
+
+    return creds.access_token
+
+
+def _quickbooks_request(
+    method: str,
+    url: str,
+    creds: QuickBooksCredentials,
+    *,
+    json_payload: dict[str, Any] | None = None,
+    max_retries: int = 2,
+) -> requests.Response:
+    """Make a QuickBooks API request with automatic token refresh and retry.
+
+    Returns the response object even on exhaustion (so callers can inspect
+    status codes). Raises ValueError only on connection errors.
+    """
+    backoff = 1.0
+    max_backoff = 2.0  # Cap to avoid blocking the web worker too long
+    last_exc: Exception | None = None
+    last_resp: requests.Response | None = None
+
+    for attempt in range(max_retries):
+        token = _ensure_quickbooks_token(creds)
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+        }
+
+        try:
+            resp = requests.request(
+                method,
+                url,
+                headers=headers,
+                json=json_payload,
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            last_exc = exc
+            logger.warning(
+                'QuickBooks request failed (attempt %d/%d): %s',
+                attempt + 1, max_retries, exc,
+            )
+            time.sleep(min(backoff, max_backoff))
+            backoff *= 2
+            continue
+
+        last_resp = resp
+
+        if resp.status_code == 401 and attempt < max_retries - 1:
+            # Token may have been revoked or expired; force refresh.
+            creds.token_expiry = None
+            creds.save(update_fields=['token_expiry'])
+            logger.info('QuickBooks 401 — forcing token refresh (attempt %d)', attempt + 1)
+            time.sleep(0.5)
+            continue
+
+        if resp.status_code == 429 or resp.status_code >= 500:
+            logger.warning(
+                'QuickBooks %d — retrying (attempt %d/%d)',
+                resp.status_code, attempt + 1, max_retries,
+            )
+            time.sleep(min(backoff, max_backoff))
+            backoff *= 2
+            continue
+
+        return resp
+
+    # Retries exhausted: return the last response if we have one (lets caller
+    # inspect status_code), otherwise raise on connection error.
+    if last_resp is not None:
+        return last_resp
+    raise ValueError(f'QuickBooks request failed after {max_retries} attempts: {last_exc}')
+
+
 def _test_quickbooks(integration: Integration):
     creds = getattr(integration, 'quickbooks_credentials', None)
     if not creds:
         return False, 'QuickBooks credentials not configured.'
 
-    # OAuth handshake requires user authorization. We validate required fields only.
-    if creds.realm_id and creds.client_id and creds.client_key:
-        return True, 'QuickBooks credentials are configured. Complete OAuth authorization to finish setup.'
+    if not creds.client_id or not creds.client_key or not creds.realm_id:
+        return False, 'QuickBooks credentials are incomplete (missing client_id, client_key, or realm_id).'
 
-    return False, 'QuickBooks credentials are incomplete.'
+    if not creds.access_token:
+        return False, 'QuickBooks not connected. Please complete the OAuth authorization flow.'
+
+    try:
+        endpoint = f'{creds.api_base_url}/v3/company/{creds.realm_id}/companyinfo/{creds.realm_id}'
+        resp = _quickbooks_request('GET', endpoint, creds)
+
+        if resp.status_code == 200:
+            body = resp.json()
+            company_info = body.get('CompanyInfo', {})
+            company_name = company_info.get('CompanyName', 'Unknown')
+            return True, f'Connected to QuickBooks company: {company_name}'
+
+        return False, f'QuickBooks connection failed with status {resp.status_code}.'
+    except ValueError as exc:
+        return False, str(exc)
 
 
 def test_integration_connection(integration: Integration):
@@ -97,54 +273,162 @@ def test_integration_connection(integration: Integration):
     return False, 'Unsupported integration type.'
 
 
-def _get_or_create_odoo_partner(
+# ---------------------------------------------------------------------------
+# Odoo XML-RPC helpers
+# ---------------------------------------------------------------------------
+
+class _OdooTimeoutTransport(xmlrpc_client.SafeTransport):
+    """XML-RPC transport with a configurable socket timeout."""
+
+    def __init__(self, timeout: int = 30, **kwargs: Any):
+        super().__init__(**kwargs)
+        self._timeout = timeout
+
+    def make_connection(self, host):
+        conn = super().make_connection(host)
+        conn.timeout = self._timeout  # type: ignore[attr-defined]
+        return conn
+
+
+def _odoo_execute(
     models_proxy: xmlrpc_client.ServerProxy,
     db: str,
     uid: int,
     api_key: str,
-    order: Order,
-) -> int:
-    """Find an existing Odoo res.partner by email or create a new one."""
-    if order.customer_email:
-        matches = cast(list[int], models_proxy.execute_kw(
-            db, uid, api_key,
-            'res.partner', 'search',
-            [[['email', '=', order.customer_email]]],
-        ))
-        if matches:
-            return matches[0]
+    model: str,
+    method: str,
+    args: list[Any],
+    kwargs: dict[str, Any] | None = None,
+    *,
+    max_retries: int = 2,
+) -> Any:
+    """Execute an Odoo XML-RPC call with retry on transient failures."""
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            return models_proxy.execute_kw(
+                db, uid, api_key, model, method, args, kwargs or {},
+            )
+        except (xmlrpc_client.ProtocolError, OSError) as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                delay = min(1.0 * (2 ** attempt), 2.0)
+                logger.warning(
+                    'Odoo XML-RPC %s.%s failed (attempt %d/%d): %s — retrying in %.1fs',
+                    model, method, attempt + 1, max_retries, exc, delay,
+                )
+                time.sleep(delay)
+                continue
+            break
+    raise ValueError(f'Odoo API call {model}.{method} failed after {max_retries} attempts: {last_exc}')
 
-    partner_vals = {
-        'name': order.customer_name or order.customer_email or 'Unknown Customer',
-        'email': order.customer_email or '',
-        'phone': order.customer_phone or '',
-        'street': order.shipping_address_line1 or '',
-        'street2': order.shipping_address_line2 or '',
-        'city': order.shipping_city or '',
-        'zip': order.shipping_postal_code or '',
-        'country_id': False,
-        'customer_rank': 1,
-    }
-    return cast(int, models_proxy.execute_kw(
-        db, uid, api_key,
-        'res.partner', 'create',
-        [partner_vals],
-    ))
+
+def _get_odoo_connection(
+    integration: Integration,
+    order: Order,
+) -> tuple[OdooCredentials, xmlrpc_client.ServerProxy, int, int]:
+    """Authenticate to Odoo and return (creds, models_proxy, uid, partner_id).
+
+    Centralises credential lookup, timeout, authentication, and partner
+    resolution so callers don't duplicate this boilerplate.
+    """
+    creds = getattr(integration, 'odoo_credentials', None)
+    if not creds:
+        raise ValueError('Odoo credentials not configured for this integration.')
+
+    base_url = creds.server_url.rstrip('/')
+    transport = _OdooTimeoutTransport(timeout=30)
+    common = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/common', transport=transport)
+
+    try:
+        uid = cast(
+            int | bool,
+            common.authenticate(creds.database_url, creds.email, creds.api_key, {}),
+        )
+    except (xmlrpc_client.Fault, xmlrpc_client.ProtocolError, OSError) as exc:
+        raise ValueError(f'Odoo authentication failed: {exc}') from exc
+
+    if not uid:
+        raise ValueError('Odoo authentication failed. Check credentials.')
+
+    models_proxy = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/object', transport=transport)
+    partner_id = _resolve_configured_odoo_partner_id(creds, order)
+
+    return creds, models_proxy, cast(int, uid), partner_id
+
+
+def _resolve_odoo_product_id(
+    item: OrderItem,
+    order: Order,
+    models_proxy: xmlrpc_client.ServerProxy,
+    creds: OdooCredentials,
+    uid: int,
+) -> int | None:
+    """Resolve the Odoo product.product ID for an order item.
+
+    Priority:
+      1. Per-market ProductMarketMapping.odoo_product_id
+      2. Global product.odoo_product_id (product template → variant lookup)
+    """
+    # 1. Per-market mapping takes precedence
+    if item.product_id and hasattr(order, 'market_id') and order.market_id:
+        mapping = ProductMarketMapping.objects.filter(
+            product_id=item.product_id,
+            market_id=order.market_id,
+        ).first()
+        if mapping and mapping.odoo_product_id:
+            try:
+                return int(mapping.odoo_product_id)
+            except (ValueError, TypeError):
+                pass
+
+    # 2. Global product template → variant lookup
+    if item.product_id and item.product and item.product.odoo_product_id:
+        try:
+            odoo_tmpl_id = int(item.product.odoo_product_id)
+            product_matches = cast(
+                list[int],
+                _odoo_execute(
+                    models_proxy, creds.database_url, uid, creds.api_key,
+                    'product.product', 'search',
+                    [[['product_tmpl_id', '=', odoo_tmpl_id]]],
+                    {'limit': 1},
+                ),
+            )
+            if product_matches:
+                return product_matches[0]
+        except (ValueError, TypeError):
+            pass
+
+    return None
+
+
+def _apply_company_id(vals: dict[str, Any], creds: OdooCredentials) -> None:
+    """Set company_id on an Odoo record dict, logging a warning on bad values."""
+    if creds.company_id:
+        try:
+            vals['company_id'] = int(creds.company_id)
+        except (ValueError, TypeError):
+            logger.warning(
+                'Odoo company_id %r is not numeric — ignoring. '
+                'Update credentials with a valid integer.',
+                creds.company_id,
+            )
 
 
 def _resolve_configured_odoo_partner_id(creds: OdooCredentials, order: Order) -> int:
     """Pick configured Odoo partner ID based on order source rules."""
-    raw_tags = str(getattr(order, 'shopify_tags', '') or '').lower()
+    raw_tags = (order.shopify_tags or '').lower()
     tags = {tag.strip() for tag in raw_tags.split(',') if tag.strip()}
 
     if 'origin:sukhiba' in tags:
-        selected_partner = str(getattr(creds, 'sukhiba_partner_id', '') or '').strip()
+        selected_partner = (creds.sukhiba_partner_id or '').strip()
         source_label = 'origin:sukhiba'
-    elif getattr(order, 'order_channel', '') == Order.CHANNEL_POS:
-        selected_partner = str(getattr(creds, 'pos_partner_id', '') or '').strip()
+    elif order.order_channel == Order.CHANNEL_POS:
+        selected_partner = (creds.pos_partner_id or '').strip()
         source_label = 'POS channel'
     else:
-        selected_partner = str(getattr(creds, 'ecommerce_partner_id', '') or '').strip()
+        selected_partner = (creds.ecommerce_partner_id or '').strip()
         source_label = 'e-commerce default'
 
     if not selected_partner:
@@ -166,59 +450,58 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
     Create a sale.order in Odoo for the given order via XML-RPC.
     Returns the Odoo record ID (integer).
     """
-    creds = getattr(integration, 'odoo_credentials', None)
-    if not creds:
-        raise ValueError('Odoo credentials not configured for this integration.')
+    creds, models_proxy, uid, partner_id = _get_odoo_connection(integration, order)
 
-    base_url = creds.server_url.rstrip('/')
-    common = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/common')
-    uid = cast(int | bool, common.authenticate(creds.database_url, creds.email, creds.api_key, {}))
-    if not uid:
-        raise ValueError('Odoo authentication failed. Check credentials.')
-
-    models_proxy = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/object')
-    partner_id = _resolve_configured_odoo_partner_id(creds, order)
-
-    order_lines = []
+    order_lines: list[tuple[int, int, dict[str, Any]]] = []
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'product_uom_qty': float(item.quantity),
             'price_unit': float(item.unit_price),
         }
-        # Map to the Odoo product template if stored on the linked product.
-        if item.product_id and item.product and item.product.odoo_product_id:
+
+        odoo_pid = _resolve_odoo_product_id(item, order, models_proxy, creds, uid)
+        if odoo_pid:
+            line_vals['product_id'] = odoo_pid
+
+        # Apply tax if configured
+        if creds.tax_id:
             try:
-                odoo_id = int(item.product.odoo_product_id)
-                product_matches = cast(list[int], models_proxy.execute_kw(
-                    creds.database_url, uid, creds.api_key,
-                    'product.product', 'search',
-                    [[['product_tmpl_id', '=', odoo_id]]],
-                    {'limit': 1},
-                ))
-                if product_matches:
-                    line_vals['product_id'] = product_matches[0]
+                line_vals['tax_id'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
 
         order_lines.append((0, 0, line_vals))
+
+    # Shipping fee line item
+    shipping_price = float(order.shipping_price or 0)
+    if shipping_price > 0 and creds.shipping_fee_account_id:
+        shipping_line: dict[str, Any] = {
+            'name': 'Shipping',
+            'product_uom_qty': 1,
+            'price_unit': shipping_price,
+        }
+        if creds.tax_id:
+            try:
+                shipping_line['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+            except (ValueError, TypeError):
+                pass
+        order_lines.append((0, 0, shipping_line))
 
     so_vals: dict[str, Any] = {
         'partner_id': partner_id,
         'client_order_ref': order.order_number,
         'order_line': order_lines,
     }
-    if creds.company_id:
-        try:
-            so_vals['company_id'] = int(creds.company_id)
-        except (ValueError, TypeError):
-            pass
+    _apply_company_id(so_vals, creds)
 
-    odoo_so_id = cast(int, models_proxy.execute_kw(
-        creds.database_url, uid, creds.api_key,
-        'sale.order', 'create',
-        [so_vals],
-    ))
+    odoo_so_id = cast(
+        int,
+        _odoo_execute(
+            models_proxy, creds.database_url, uid, creds.api_key,
+            'sale.order', 'create', [so_vals],
+        ),
+    )
     return odoo_so_id
 
 
@@ -227,41 +510,47 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
     Create an account.move (customer invoice) in Odoo for the given order via XML-RPC.
     Returns the Odoo record ID (integer).
     """
-    creds = getattr(integration, 'odoo_credentials', None)
-    if not creds:
-        raise ValueError('Odoo credentials not configured for this integration.')
+    creds, models_proxy, uid, partner_id = _get_odoo_connection(integration, order)
 
-    base_url = creds.server_url.rstrip('/')
-    common = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/common')
-    uid = cast(int | bool, common.authenticate(creds.database_url, creds.email, creds.api_key, {}))
-    if not uid:
-        raise ValueError('Odoo authentication failed. Check credentials.')
-
-    models_proxy = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/object')
-    partner_id = _resolve_configured_odoo_partner_id(creds, order)
-
-    invoice_lines = []
+    invoice_lines: list[tuple[int, int, dict[str, Any]]] = []
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'quantity': float(item.quantity),
             'price_unit': float(item.unit_price),
         }
-        if item.product_id and item.product and item.product.odoo_product_id:
+
+        odoo_pid = _resolve_odoo_product_id(item, order, models_proxy, creds, uid)
+        if odoo_pid:
+            line_vals['product_id'] = odoo_pid
+
+        # Apply tax if configured
+        if creds.tax_id:
             try:
-                odoo_id = int(item.product.odoo_product_id)
-                product_matches = cast(list[int], models_proxy.execute_kw(
-                    creds.database_url, uid, creds.api_key,
-                    'product.product', 'search',
-                    [[['product_tmpl_id', '=', odoo_id]]],
-                    {'limit': 1},
-                ))
-                if product_matches:
-                    line_vals['product_id'] = product_matches[0]
+                line_vals['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
 
         invoice_lines.append((0, 0, line_vals))
+
+    # Shipping fee line item
+    shipping_price = float(order.shipping_price or 0)
+    if shipping_price > 0 and creds.shipping_fee_account_id:
+        shipping_line: dict[str, Any] = {
+            'name': 'Shipping',
+            'quantity': 1,
+            'price_unit': shipping_price,
+        }
+        try:
+            shipping_line['account_id'] = int(creds.shipping_fee_account_id)
+        except (ValueError, TypeError):
+            pass
+        if creds.tax_id:
+            try:
+                shipping_line['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
+            except (ValueError, TypeError):
+                pass
+        invoice_lines.append((0, 0, shipping_line))
 
     move_vals: dict[str, Any] = {
         'move_type': 'out_invoice',
@@ -269,36 +558,159 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
         'ref': order.order_number,
         'invoice_line_ids': invoice_lines,
     }
-    if creds.company_id:
-        try:
-            move_vals['company_id'] = int(creds.company_id)
-        except (ValueError, TypeError):
-            pass
+    _apply_company_id(move_vals, creds)
 
-    odoo_invoice_id = cast(int, models_proxy.execute_kw(
-        creds.database_url, uid, creds.api_key,
-        'account.move', 'create',
-        [move_vals],
-    ))
+    odoo_invoice_id = cast(
+        int,
+        _odoo_execute(
+            models_proxy, creds.database_url, uid, creds.api_key,
+            'account.move', 'create', [move_vals],
+        ),
+    )
     return odoo_invoice_id
 
+
+def update_odoo_sales_order(integration: Integration, order: Order) -> None:
+    """
+    Update an existing sale.order in Odoo to reflect the current order state.
+    Clears existing order lines and re-creates them from scratch.
+    """
+    if not order.odoo_sales_order_id:
+        raise ValueError('No Odoo Sales Order ID on this order — nothing to update.')
+
+    creds, models_proxy, uid, partner_id = _get_odoo_connection(integration, order)
+    odoo_so_id = int(order.odoo_sales_order_id)
+
+    # Build new order lines
+    order_lines: list[tuple[int, int, dict[str, Any]]] = []
+    for item in order.items.all():
+        line_vals: dict[str, Any] = {
+            'name': item.product_name,
+            'product_uom_qty': float(item.quantity),
+            'price_unit': float(item.unit_price),
+        }
+
+        odoo_pid = _resolve_odoo_product_id(item, order, models_proxy, creds, uid)
+        if odoo_pid:
+            line_vals['product_id'] = odoo_pid
+
+        if creds.tax_id:
+            try:
+                line_vals['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+            except (ValueError, TypeError):
+                pass
+
+        order_lines.append((0, 0, line_vals))
+
+    # Shipping fee line item
+    shipping_price = float(order.shipping_price or 0)
+    if shipping_price > 0 and creds.shipping_fee_account_id:
+        shipping_line: dict[str, Any] = {
+            'name': 'Shipping',
+            'product_uom_qty': 1,
+            'price_unit': shipping_price,
+        }
+        if creds.tax_id:
+            try:
+                shipping_line['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+            except (ValueError, TypeError):
+                pass
+        order_lines.append((0, 0, shipping_line))
+
+    update_vals: dict[str, Any] = {
+        'partner_id': partner_id,
+        'client_order_ref': order.order_number,
+        # (5, 0, 0) = unlink all existing lines, then (0, 0, {...}) = create new
+        'order_line': [(5, 0, 0)] + order_lines,
+    }
+    _apply_company_id(update_vals, creds)
+
+    _odoo_execute(
+        models_proxy, creds.database_url, uid, creds.api_key,
+        'sale.order', 'write', [[odoo_so_id], update_vals],
+    )
+
+
+def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
+    """
+    Update an existing account.move (customer invoice) in Odoo.
+    Only works on invoices still in draft state.
+    Clears existing lines and re-creates them from the current order.
+    """
+    if not order.odoo_sales_invoice_id:
+        raise ValueError('No Odoo Invoice ID on this order — nothing to update.')
+
+    creds, models_proxy, uid, partner_id = _get_odoo_connection(integration, order)
+    odoo_inv_id = int(order.odoo_sales_invoice_id)
+
+    # Build new invoice lines
+    invoice_lines: list[tuple[int, int, dict[str, Any]]] = []
+    for item in order.items.all():
+        line_vals: dict[str, Any] = {
+            'name': item.product_name,
+            'quantity': float(item.quantity),
+            'price_unit': float(item.unit_price),
+        }
+
+        odoo_pid = _resolve_odoo_product_id(item, order, models_proxy, creds, uid)
+        if odoo_pid:
+            line_vals['product_id'] = odoo_pid
+
+        if creds.tax_id:
+            try:
+                line_vals['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
+            except (ValueError, TypeError):
+                pass
+
+        invoice_lines.append((0, 0, line_vals))
+
+    # Shipping fee line item
+    shipping_price = float(order.shipping_price or 0)
+    if shipping_price > 0 and creds.shipping_fee_account_id:
+        shipping_line: dict[str, Any] = {
+            'name': 'Shipping',
+            'quantity': 1,
+            'price_unit': shipping_price,
+        }
+        try:
+            shipping_line['account_id'] = int(creds.shipping_fee_account_id)
+        except (ValueError, TypeError):
+            pass
+        if creds.tax_id:
+            try:
+                shipping_line['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
+            except (ValueError, TypeError):
+                pass
+        invoice_lines.append((0, 0, shipping_line))
+
+    update_vals: dict[str, Any] = {
+        'partner_id': partner_id,
+        'ref': order.order_number,
+        'invoice_line_ids': [(5, 0, 0)] + invoice_lines,
+    }
+    _apply_company_id(update_vals, creds)
+
+    _odoo_execute(
+        models_proxy, creds.database_url, uid, creds.api_key,
+        'account.move', 'write', [[odoo_inv_id], update_vals],
+    )
 
 def _resolve_configured_quickbooks_customer_id(
     creds: QuickBooksCredentials,
     order: Order,
 ) -> str:
     """Pick configured QuickBooks customer ID based on order source rules."""
-    raw_tags = str(getattr(order, 'shopify_tags', '') or '').lower()
+    raw_tags = (order.shopify_tags or '').lower()
     tags = {tag.strip() for tag in raw_tags.split(',') if tag.strip()}
 
     if 'origin:sukhiba' in tags:
-        selected_customer = str(getattr(creds, 'sukhiba_customer_id', '') or '').strip()
+        selected_customer = (creds.sukhiba_customer_id or '').strip()
         source_label = 'origin:sukhiba'
-    elif getattr(order, 'order_channel', '') == Order.CHANNEL_POS:
-        selected_customer = str(getattr(creds, 'pos_customer_id', '') or '').strip()
+    elif order.order_channel == Order.CHANNEL_POS:
+        selected_customer = (creds.pos_customer_id or '').strip()
         source_label = 'POS channel'
     else:
-        selected_customer = str(getattr(creds, 'ecommerce_customer_id', '') or '').strip()
+        selected_customer = (creds.ecommerce_customer_id or '').strip()
         source_label = 'e-commerce default'
 
     if not selected_customer:
@@ -318,12 +730,7 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
 
     customer_id = _resolve_configured_quickbooks_customer_id(creds, order)
 
-    base_url = (
-        'https://sandbox-quickbooks.api.intuit.com'
-        if creds.environment == QuickBooksCredentials.Environment.SANDBOX
-        else 'https://quickbooks.api.intuit.com'
-    )
-    endpoint = f'{base_url}/v3/company/{creds.realm_id}/invoice?minorversion=75'
+    endpoint = f'{creds.api_base_url}/v3/company/{creds.realm_id}/invoice?minorversion=75'
 
     lines: list[dict[str, Any]] = []
     for item in order.items.all():
@@ -338,30 +745,57 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
             },
         }
 
-        if item.product_id and item.product and item.product.quickbooks_product_id:
-            line['SalesItemLineDetail']['ItemRef'] = {
-                'value': str(item.product.quickbooks_product_id),
-            }
+        # Per-market product mapping takes precedence over global product ID
+        qb_product_id = ''
+        if item.product_id and hasattr(order, 'market_id') and order.market_id:
+            mapping = ProductMarketMapping.objects.filter(
+                product_id=item.product_id,
+                market_id=order.market_id,
+            ).first()
+            if mapping and mapping.quickbooks_product_id:
+                qb_product_id = mapping.quickbooks_product_id
+
+        if not qb_product_id and item.product_id and item.product:
+            qb_product_id = str(getattr(item.product, 'quickbooks_product_id', '') or '')
+
+        if qb_product_id:
+            line['SalesItemLineDetail']['ItemRef'] = {'value': qb_product_id}
+
+        # Tax code
+        if creds.tax_id:
+            line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
 
         lines.append(line)
 
+    # Shipping fee line item
+    shipping_price = float(order.shipping_price or 0)
+    if shipping_price > 0 and creds.shipping_fee_account_id:
+        shipping_line: dict[str, Any] = {
+            'DetailType': 'SalesItemLineDetail',
+            'Amount': shipping_price,
+            'Description': 'Shipping',
+            'SalesItemLineDetail': {
+                'ItemRef': {'value': creds.shipping_fee_account_id},
+                'Qty': 1,
+                'UnitPrice': shipping_price,
+            },
+        }
+        if creds.tax_id:
+            shipping_line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
+        lines.append(shipping_line)
+
+    # Invoice number with optional prefix
+    prefix = str(creds.invoice_prefix or '').strip()
+    doc_number = f'{prefix}{order.order_number}'[:21]
+
     payload: dict[str, Any] = {
-        'DocNumber': str(order.order_number)[:21],
+        'DocNumber': doc_number,
         'CustomerRef': {'value': customer_id},
         'PrivateNote': f'Omni-Link order {order.order_number}',
         'Line': lines,
     }
 
-    response = requests.post(
-        endpoint,
-        headers={
-            'Authorization': f'Bearer {creds.client_key}',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-        },
-        json=payload,
-        timeout=30,
-    )
+    response = _quickbooks_request('POST', endpoint, creds, json_payload=payload)
 
     if response.status_code >= 400:
         detail = response.text
@@ -384,6 +818,123 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
         raise ValueError('QuickBooks invoice creation succeeded but no Invoice ID was returned.')
 
     return invoice_id
+
+
+def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
+    """
+    Update an existing QuickBooks invoice to reflect the current order state.
+    Reads the existing invoice to obtain its SyncToken, rebuilds line items,
+    and POSTs the update.
+    """
+    if not order.quickbooks_sales_invoice_id:
+        raise ValueError('No QuickBooks Invoice ID on this order — nothing to update.')
+
+    creds = getattr(integration, 'quickbooks_credentials', None)
+    if not creds:
+        raise ValueError('QuickBooks credentials not configured for this integration.')
+
+    qb_invoice_id = order.quickbooks_sales_invoice_id
+    customer_id = _resolve_configured_quickbooks_customer_id(creds, order)
+
+    # 1. Read existing invoice to get SyncToken (required for optimistic locking)
+    read_url = (
+        f'{creds.api_base_url}/v3/company/{creds.realm_id}'
+        f'/invoice/{qb_invoice_id}?minorversion=75'
+    )
+    read_resp = _quickbooks_request('GET', read_url, creds)
+    if read_resp.status_code >= 400:
+        raise ValueError(
+            f'Failed to read existing QuickBooks Invoice {qb_invoice_id}: '
+            f'status {read_resp.status_code}'
+        )
+    existing = cast(dict[str, Any], read_resp.json())
+    existing_invoice = cast(dict[str, Any], existing.get('Invoice') or {})
+    sync_token = str(existing_invoice.get('SyncToken') or '0')
+
+    # 2. Build updated line items
+    lines: list[dict[str, Any]] = []
+    for item in order.items.all():
+        amount = float(item.total_price)
+        line: dict[str, Any] = {
+            'DetailType': 'SalesItemLineDetail',
+            'Amount': amount,
+            'Description': item.product_name,
+            'SalesItemLineDetail': {
+                'Qty': float(item.quantity),
+                'UnitPrice': float(item.unit_price),
+            },
+        }
+
+        # Per-market product mapping
+        qb_product_id = ''
+        if item.product_id and hasattr(order, 'market_id') and order.market_id:
+            mapping = ProductMarketMapping.objects.filter(
+                product_id=item.product_id,
+                market_id=order.market_id,
+            ).first()
+            if mapping and mapping.quickbooks_product_id:
+                qb_product_id = mapping.quickbooks_product_id
+
+        if not qb_product_id and item.product_id and item.product:
+            qb_product_id = str(getattr(item.product, 'quickbooks_product_id', '') or '')
+
+        if qb_product_id:
+            line['SalesItemLineDetail']['ItemRef'] = {'value': qb_product_id}
+
+        if creds.tax_id:
+            line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
+
+        lines.append(line)
+
+    # Shipping fee line item
+    shipping_price = float(order.shipping_price or 0)
+    if shipping_price > 0 and creds.shipping_fee_account_id:
+        shipping_line: dict[str, Any] = {
+            'DetailType': 'SalesItemLineDetail',
+            'Amount': shipping_price,
+            'Description': 'Shipping',
+            'SalesItemLineDetail': {
+                'ItemRef': {'value': creds.shipping_fee_account_id},
+                'Qty': 1,
+                'UnitPrice': shipping_price,
+            },
+        }
+        if creds.tax_id:
+            shipping_line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
+        lines.append(shipping_line)
+
+    prefix = str(creds.invoice_prefix or '').strip()
+    doc_number = f'{prefix}{order.order_number}'[:21]
+
+    # 3. POST update — must include Id and SyncToken
+    payload: dict[str, Any] = {
+        'Id': qb_invoice_id,
+        'SyncToken': sync_token,
+        'DocNumber': doc_number,
+        'CustomerRef': {'value': customer_id},
+        'PrivateNote': f'Omni-Link order {order.order_number} (updated)',
+        'Line': lines,
+    }
+
+    update_url = (
+        f'{creds.api_base_url}/v3/company/{creds.realm_id}'
+        f'/invoice?minorversion=75'
+    )
+    response = _quickbooks_request('POST', update_url, creds, json_payload=payload)
+
+    if response.status_code >= 400:
+        detail = response.text
+        try:
+            parsed = response.json()
+            fault = parsed.get('Fault', {}) if isinstance(parsed, dict) else {}
+            errors = fault.get('Error', []) if isinstance(fault, dict) else []
+            if isinstance(errors, list) and errors:
+                first = errors[0]
+                if isinstance(first, dict):
+                    detail = str(first.get('Detail') or first.get('Message') or detail)
+        except ValueError:
+            pass
+        raise ValueError(f'QuickBooks invoice update failed: {detail}')
 
 
 def _normalize_market_and_currency(
@@ -802,6 +1353,11 @@ def _upsert_shopify_order_from_payload(
             auto_sync_order_to_erp(order)
         except Exception:  # noqa: BLE001
             logger.exception("Auto-sync failed for order %s", order.order_number)
+    else:
+        try:
+            auto_update_order_in_erp(order)
+        except Exception:  # noqa: BLE001
+            logger.exception("Auto-update ERP failed for order %s", order.order_number)
 
     return order, created, False
 
@@ -1478,6 +2034,141 @@ def _auto_sync_order_to_quickbooks(order, integration: Integration) -> None:
             external_id=str(invoice_id),
         )
     except Exception as exc:  # noqa: BLE001
+        order.quickbooks_sync_status = order.SYNC_FAILED
+        order.save(update_fields=['quickbooks_sync_status'])
+        OrderSyncLog.objects.create(
+            order=order,
+            integration=integration,
+            target=OrderSyncLog.SyncTarget.QUICKBOOKS,
+            status=OrderSyncLog.SyncStatus.FAILED,
+            error_message=str(exc)[:5000],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Auto-UPDATE ERP records when a Shopify order is updated
+# ---------------------------------------------------------------------------
+
+def auto_update_order_in_erp(order) -> None:
+    """Automatically update existing ERP records (Odoo SO/Invoice, QB Invoice)
+    when an order is updated via Shopify webhook.
+
+    Only fires for integrations with auto_sync_orders=True and only if
+    the order already has an external ID for the target platform.
+    """
+    market_name = order.market.name if order.market_id else None
+    if not market_name:
+        return
+
+    # Only bother if the order already has at least one ERP record
+    has_odoo = bool(order.odoo_sales_order_id or order.odoo_sales_invoice_id)
+    has_qb = bool(order.quickbooks_sales_invoice_id)
+    if not has_odoo and not has_qb:
+        return
+
+    integrations = (
+        Integration.objects
+        .filter(
+            market=market_name,
+            auto_sync_orders=True,
+            status=Integration.IntegrationStatus.ACTIVE,
+        )
+        .select_related('odoo_credentials', 'quickbooks_credentials')
+    )
+
+    for integration in integrations:
+        if integration.type == Integration.IntegrationType.ODOO and has_odoo:
+            _auto_update_order_in_odoo(order, integration)
+        elif integration.type == Integration.IntegrationType.QUICKBOOKS and has_qb:
+            _auto_update_order_in_quickbooks(order, integration)
+
+
+def _auto_update_order_in_odoo(order, integration: Integration) -> None:
+    from .models import OrderSyncLog
+
+    order.odoo_sync_status = order.SYNC_PENDING
+    order.save(update_fields=['odoo_sync_status'])
+
+    # Update Sales Order
+    if order.odoo_sales_order_id:
+        try:
+            update_odoo_sales_order(integration, order)
+            OrderSyncLog.objects.create(
+                order=order,
+                integration=integration,
+                target=OrderSyncLog.SyncTarget.ODOO_SO,
+                status=OrderSyncLog.SyncStatus.SUCCESS,
+                external_id=order.odoo_sales_order_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                'Auto-update Odoo SO failed for order %s', order.order_number,
+            )
+            OrderSyncLog.objects.create(
+                order=order,
+                integration=integration,
+                target=OrderSyncLog.SyncTarget.ODOO_SO,
+                status=OrderSyncLog.SyncStatus.FAILED,
+                error_message=str(exc)[:5000],
+            )
+            order.odoo_sync_status = order.SYNC_FAILED
+            order.save(update_fields=['odoo_sync_status'])
+            return
+
+    # Update Invoice
+    if order.odoo_sales_invoice_id:
+        try:
+            update_odoo_invoice_record(integration, order)
+            OrderSyncLog.objects.create(
+                order=order,
+                integration=integration,
+                target=OrderSyncLog.SyncTarget.ODOO_INVOICE,
+                status=OrderSyncLog.SyncStatus.SUCCESS,
+                external_id=order.odoo_sales_invoice_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                'Auto-update Odoo Invoice failed for order %s', order.order_number,
+            )
+            OrderSyncLog.objects.create(
+                order=order,
+                integration=integration,
+                target=OrderSyncLog.SyncTarget.ODOO_INVOICE,
+                status=OrderSyncLog.SyncStatus.FAILED,
+                error_message=str(exc)[:5000],
+            )
+            order.odoo_sync_status = order.SYNC_FAILED
+            order.save(update_fields=['odoo_sync_status'])
+            return
+
+    order.odoo_sync_status = order.SYNC_SUCCESS
+    order.save(update_fields=['odoo_sync_status'])
+
+
+def _auto_update_order_in_quickbooks(order, integration: Integration) -> None:
+    from .models import OrderSyncLog
+
+    if not order.quickbooks_sales_invoice_id:
+        return
+
+    order.quickbooks_sync_status = order.SYNC_PENDING
+    order.save(update_fields=['quickbooks_sync_status'])
+
+    try:
+        update_quickbooks_invoice(integration, order)
+        order.quickbooks_sync_status = order.SYNC_SUCCESS
+        order.save(update_fields=['quickbooks_sync_status'])
+        OrderSyncLog.objects.create(
+            order=order,
+            integration=integration,
+            target=OrderSyncLog.SyncTarget.QUICKBOOKS,
+            status=OrderSyncLog.SyncStatus.SUCCESS,
+            external_id=order.quickbooks_sales_invoice_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            'Auto-update QuickBooks Invoice failed for order %s', order.order_number,
+        )
         order.quickbooks_sync_status = order.SYNC_FAILED
         order.save(update_fields=['quickbooks_sync_status'])
         OrderSyncLog.objects.create(

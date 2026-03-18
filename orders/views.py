@@ -177,17 +177,43 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
         serializer = OrderItemSerializer(items, many=True)
         return Response(serializer.data)
 
+    # -----------------------------------------------------------------
+    # Helper: look up the active integration for an order's market
+    # -----------------------------------------------------------------
+    @staticmethod
+    def _get_active_integration(
+        order: Order,
+        integration_type: str,
+    ) -> Integration | None:
+        """Return the active integration for the order's market, or None."""
+        return cast(
+            Integration | None,
+            Integration.objects.filter(
+                type=integration_type,
+                market=order.market.name,
+                status=Integration.IntegrationStatus.ACTIVE,
+            ).first(),
+        )
+
     @action(detail=True, methods=['post'], url_path='push-to-quickbooks')
     def push_to_quickbooks(self, request: Request, pk: str | None = None) -> Response:
         """Push order to QuickBooks for the order's market"""
         order = cast(Order, self.get_object())
 
+        # Duplicate guard: reject if invoice already exists
+        if order.quickbooks_sales_invoice_id:
+            return Response(
+                {
+                    'error': 'A QuickBooks Invoice already exists for this order.',
+                    'quickbooks_sales_invoice_id': order.quickbooks_sales_invoice_id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         # Find active QuickBooks integration for this order's market
-        integration = cast(Integration | None, Integration.objects.filter(
-            type=Integration.IntegrationType.QUICKBOOKS,
-            market=order.market.name,
-            status=Integration.IntegrationStatus.ACTIVE,
-        ).first())
+        integration = self._get_active_integration(
+            order, Integration.IntegrationType.QUICKBOOKS,
+        )
 
         if not integration:
             return Response(
@@ -229,11 +255,9 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
         """Get QuickBooks URL for this order"""
         order = cast(Order, self.get_object())
 
-        integration = cast(Integration | None, Integration.objects.filter(
-            type=Integration.IntegrationType.QUICKBOOKS,
-            market=order.market.name,
-            status=Integration.IntegrationStatus.ACTIVE,
-        ).first())
+        integration = self._get_active_integration(
+            order, Integration.IntegrationType.QUICKBOOKS,
+        )
 
         if not integration:
             return Response(
@@ -271,11 +295,19 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
         """Create Odoo Sales Order for this order"""
         order = cast(Order, self.get_object())
 
-        integration = cast(Integration | None, Integration.objects.filter(
-            type=Integration.IntegrationType.ODOO,
-            market=order.market.name,
-            status=Integration.IntegrationStatus.ACTIVE,
-        ).first())
+        # Duplicate guard: reject if SO already exists
+        if order.odoo_sales_order_id:
+            return Response(
+                {
+                    'error': 'An Odoo Sales Order already exists for this order.',
+                    'odoo_sales_order_id': order.odoo_sales_order_id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        integration = self._get_active_integration(
+            order, Integration.IntegrationType.ODOO,
+        )
 
         if not integration:
             return Response(
@@ -317,11 +349,19 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
         """Create Odoo Invoice for this order"""
         order = cast(Order, self.get_object())
 
-        integration = cast(Integration | None, Integration.objects.filter(
-            type=Integration.IntegrationType.ODOO,
-            market=order.market.name,
-            status=Integration.IntegrationStatus.ACTIVE,
-        ).first())
+        # Duplicate guard: reject if invoice already exists
+        if order.odoo_sales_invoice_id:
+            return Response(
+                {
+                    'error': 'An Odoo Invoice already exists for this order.',
+                    'odoo_sales_invoice_id': order.odoo_sales_invoice_id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        integration = self._get_active_integration(
+            order, Integration.IntegrationType.ODOO,
+        )
 
         if not integration:
             return Response(
@@ -346,7 +386,8 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
             )
 
         order.odoo_sales_invoice_id = str(odoo_invoice_id)
-        order.save(update_fields=['odoo_sales_invoice_id'])
+        order.odoo_sync_status = Order.SYNC_SUCCESS
+        order.save(update_fields=['odoo_sales_invoice_id', 'odoo_sync_status'])
         OrderSyncLog.objects.create(
             order=order, integration=integration,
             target=OrderSyncLog.SyncTarget.ODOO_INVOICE,
@@ -362,11 +403,9 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
         """Get Odoo Sales Order URL for this order"""
         order = cast(Order, self.get_object())
 
-        integration = cast(Integration | None, Integration.objects.filter(
-            type=Integration.IntegrationType.ODOO,
-            market=order.market.name,
-            status=Integration.IntegrationStatus.ACTIVE,
-        ).first())
+        integration = self._get_active_integration(
+            order, Integration.IntegrationType.ODOO,
+        )
 
         if not integration:
             return Response(
@@ -402,11 +441,9 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
         """Get Odoo Invoice URL for this order"""
         order = cast(Order, self.get_object())
 
-        integration = cast(Integration | None, Integration.objects.filter(
-            type=Integration.IntegrationType.ODOO,
-            market=order.market.name,
-            status=Integration.IntegrationStatus.ACTIVE,
-        ).first())
+        integration = self._get_active_integration(
+            order, Integration.IntegrationType.ODOO,
+        )
 
         if not integration:
             return Response(

@@ -1,31 +1,15 @@
-from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
-
-
-# QuickBooks OAuth callback endpoint
-class QuickBooksOAuthCallbackView(APIView):
-    permission_classes = [AllowAny]
-
-    def get(self, request, *args, **kwargs):
-        # This is where QuickBooks will redirect after user authorization
-        # You should handle the OAuth code exchange here
-        code = request.query_params.get('code')
-        state = request.query_params.get('state')
-        realm_id = request.query_params.get('realmId')
-        # TODO: Exchange code for access token, save credentials, etc.
-        return Response({
-            'status': 'ok',
-            'message': 'QuickBooks OAuth callback received',
-            'code': code,
-            'state': state,
-            'realm_id': realm_id,
-        })
 # pyright: reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false, reportMissingTypeArgument=false
+import base64
 import logging
+import secrets
 from datetime import datetime
 from datetime import timedelta
+from urllib.parse import urlencode
 
+from django.db import transaction
+from django.http import HttpResponse
 from django.utils import timezone
+import requests
 from rest_framework import status, viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -44,6 +28,8 @@ from .serializers import (
     OrderSyncLogSerializer,
 )
 from integrations.services import (
+    INTUIT_TOKEN_URL,
+    INTUIT_AUTH_URL,
     test_integration_connection,
     import_shopify_orders,
     import_shopify_products,
@@ -51,6 +37,139 @@ from integrations.services import (
     process_shopify_webhook_event,
     resolve_shopify_integration_by_shop_domain,
 )
+
+
+# ---------------------------------------------------------------------------
+# QuickBooks OAuth callback (public endpoint, no auth required)
+# ---------------------------------------------------------------------------
+class QuickBooksOAuthCallbackView(APIView):
+    """Handles the OAuth 2.0 redirect from Intuit after user authorization."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        from .models import Integration
+
+        code = request.query_params.get('code')
+        raw_state = request.query_params.get('state', '')
+        realm_id = request.query_params.get('realmId')
+
+        if not code or not raw_state:
+            return Response(
+                {'error': 'Missing code or state parameter.'},
+                status=400,
+            )
+
+        # Parse composite state: "<integration_id>:<csrf_token>"
+        parts = raw_state.split(':', 1)
+        if len(parts) != 2:
+            return Response(
+                {'error': 'Malformed state parameter.'},
+                status=400,
+            )
+
+        try:
+            integration_id = int(parts[0])
+            csrf_token = parts[1]
+        except (ValueError, TypeError):
+            return Response(
+                {'error': 'Invalid integration ID in state parameter.'},
+                status=400,
+            )
+
+        try:
+            integration = Integration.objects.get(pk=integration_id)
+        except Integration.DoesNotExist:
+            return Response(
+                {'error': 'Invalid integration ID in state parameter.'},
+                status=400,
+            )
+
+        creds = getattr(integration, 'quickbooks_credentials', None)
+        if not creds:
+            return Response(
+                {'error': 'QuickBooks credentials not configured for this integration.'},
+                status=400,
+            )
+
+        # Validate CSRF state token
+        if not creds.oauth_state or not secrets.compare_digest(creds.oauth_state, csrf_token):
+            return Response(
+                {'error': 'Invalid or expired state token. Please retry the authorization flow.'},
+                status=403,
+            )
+
+        # Exchange authorization code for tokens
+        auth_header = base64.b64encode(
+            f'{creds.client_id}:{creds.client_key}'.encode()
+        ).decode()
+
+        redirect_uri = creds.redirect_uri or request.build_absolute_uri(request.path)
+
+        try:
+            token_response = requests.post(
+                INTUIT_TOKEN_URL,
+                headers={
+                    'Authorization': f'Basic {auth_header}',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                data={
+                    'grant_type': 'authorization_code',
+                    'code': code,
+                    'redirect_uri': redirect_uri,
+                },
+                timeout=15,
+            )
+        except requests.RequestException as exc:
+            return Response(
+                {'error': f'Token exchange request failed: {exc}'},
+                status=502,
+            )
+
+        if token_response.status_code >= 400:
+            return Response(
+                {'error': f'Token exchange failed: {token_response.text[:500]}'},
+                status=502,
+            )
+
+        data = token_response.json()
+
+        with transaction.atomic():
+            creds.access_token = data.get('access_token', '')
+            creds.refresh_token = data.get('refresh_token', '')
+            creds.token_expiry = timezone.now() + timedelta(
+                seconds=data.get('expires_in', 3600)
+            )
+            if realm_id:
+                creds.realm_id = realm_id
+            creds.redirect_uri = redirect_uri
+            creds.oauth_state = ''  # Consume the nonce
+            creds.save()
+
+        # Return an HTML page that signals the opener window via postMessage
+        # and then closes itself, so the parent UI can auto-refresh.
+        html = '''
+        <!DOCTYPE html>
+        <html>
+        <head><title>QuickBooks Connected</title></head>
+        <body>
+            <p>QuickBooks connected successfully. This window will close automatically.</p>
+            <script>
+                if (window.opener) {
+                    window.opener.postMessage(
+                        { type: 'quickbooks_connected', success: true },
+                        window.location.origin
+                    );
+                    window.close();
+                } else {
+                    window.location.href = '/integrations?quickbooks_connected=true';
+                }
+            </script>
+        </body>
+        </html>
+        '''
+        return HttpResponse(html, content_type='text/html')
 
 
 class IntegrationViewSet(viewsets.ModelViewSet):
@@ -177,6 +296,45 @@ class IntegrationViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST,
         )
+
+    @action(detail=True, methods=['post'], url_path='quickbooks-auth-url')
+    def quickbooks_auth_url(self, request, pk=None):
+        """Generate the QuickBooks OAuth 2.0 authorization URL."""
+        integration = self.get_object()
+        if integration.type != Integration.IntegrationType.QUICKBOOKS:
+            return Response(
+                {'detail': 'This action is only for QuickBooks integrations.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        creds = getattr(integration, 'quickbooks_credentials', None)
+        if not creds or not creds.client_id:
+            return Response(
+                {'detail': 'QuickBooks credentials (client_id) not configured.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        redirect_uri = request.build_absolute_uri('/api/integrations/quickbooks/callback/')
+
+        # Generate and persist a cryptographic CSRF nonce
+        csrf_token = secrets.token_urlsafe(32)
+        creds.redirect_uri = redirect_uri
+        creds.oauth_state = csrf_token
+        creds.save(update_fields=['redirect_uri', 'oauth_state'])
+
+        params = urlencode({
+            'client_id': creds.client_id,
+            'scope': 'com.intuit.quickbooks.accounting',
+            'redirect_uri': redirect_uri,
+            'response_type': 'code',
+            'state': f'{integration.id}:{csrf_token}',
+        })
+        auth_url = f'{INTUIT_AUTH_URL}?{params}'
+
+        return Response({
+            'auth_url': auth_url,
+            'integration_id': integration.id,
+        })
 
     @action(detail=True, methods=['post'], url_path='sync-products')
     def sync_products(self, request, pk=None):

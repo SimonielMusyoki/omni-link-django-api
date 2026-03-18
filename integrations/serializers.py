@@ -1,4 +1,6 @@
 # pyright: reportMissingTypeArgument=false, reportIncompatibleVariableOverride=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false
+from datetime import timedelta
+
 from rest_framework import serializers
 
 from .models import (
@@ -104,6 +106,12 @@ class IntegrationSerializer(serializers.ModelSerializer):
             creds = getattr(obj, 'quickbooks_credentials', None)
             if not creds:
                 return None
+            from django.utils import timezone as _tz
+            is_connected = bool(
+                creds.access_token
+                and creds.token_expiry
+                and _tz.now() < creds.token_expiry - timedelta(minutes=5)
+            )
             return {
                 'realm_id': creds.realm_id,
                 'client_id': creds.client_id,
@@ -115,6 +123,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'environment': creds.environment,
                 'invoice_prefix': creds.invoice_prefix,
                 'has_client_key': bool(creds.client_key),
+                'has_access_token': bool(creds.access_token),
+                'is_connected': is_connected,
             }
 
         return None
@@ -249,6 +259,11 @@ class IntegrationSerializer(serializers.ModelSerializer):
         raise serializers.ValidationError({'type': 'Unsupported integration type.'})
 
     def _existing_credentials_map(self, instance, integration_type):
+        """Return existing credential values for merge-on-update.
+
+        ⚠️ INTERNAL ONLY — contains sensitive fields (api_key, tokens).
+        Never expose this dict in API responses; use get_credential_summary instead.
+        """
         if instance is None:
             return {}
 
@@ -296,6 +311,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 'shipping_fee_account_id': creds.shipping_fee_account_id,
                 'environment': creds.environment,
                 'invoice_prefix': creds.invoice_prefix,
+                # OAuth tokens are backend-managed; never expose them in API responses
             }
 
         return {}
