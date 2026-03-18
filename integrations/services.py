@@ -346,15 +346,20 @@ def fetch_odoo_options(integration: Integration) -> dict[str, list[dict[str, str
     models_proxy = xmlrpc_client.ServerProxy(f'{base_url}/xmlrpc/2/object', transport=transport)
     uid_int = cast(int, uid)
 
+    company_id = int(creds.company_id) if creds.company_id else None
+
     # 1. Fetch Partners (customers)
     partners = []
     try:
+        partner_domain = [['customer_rank', '>', 0]]
+        if company_id:
+            partner_domain.append(['company_id', 'in', [company_id, False]])
         partner_ids = cast(
             list[int],
             _odoo_execute(
                 models_proxy, creds.database_url, uid_int, creds.api_key,
                 'res.partner', 'search',
-                [[['customer_rank', '>', 0]]],
+                [partner_domain],
                 {'limit': 500},
             ),
         )
@@ -412,12 +417,15 @@ def fetch_odoo_options(integration: Integration) -> dict[str, list[dict[str, str
     # 3. Fetch Taxes (account.tax)
     tax_codes = []
     try:
+        tax_domain = [['active', '=', True], ['type_tax_use', '=', 'sale']]
+        if company_id:
+            tax_domain.append(['company_id', '=', company_id])
         tax_ids = cast(
             list[int],
             _odoo_execute(
                 models_proxy, creds.database_url, uid_int, creds.api_key,
                 'account.tax', 'search',
-                [[['active', '=', True], ['type_tax_use', '=', 'sale']]],
+                [tax_domain],
                 {'limit': 500},
             ),
         )

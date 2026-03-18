@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from api.timezones import parse_business_datetime_filter_value
-from authentication.permissions import IsAdminOrOwner
+from authentication.permissions import IsAdminOrOwner, IsManagerOrAbove
 
 logger = logging.getLogger(__name__)
 
@@ -300,7 +300,7 @@ class IntegrationViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST,
         )
 
-    @action(detail=True, methods=['get'], url_path='quickbooks-options')
+    @action(detail=True, methods=['get'], url_path='quickbooks-options', permission_classes=[IsAuthenticated, IsManagerOrAbove])
     def quickbooks_options(self, request, pk=None):
         """Fetch live Customers and Tax Codes from QuickBooks for configuration."""
         integration = self.get_object()
@@ -320,7 +320,7 @@ class IntegrationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    @action(detail=True, methods=['get'], url_path='odoo-options')
+    @action(detail=True, methods=['get'], url_path='odoo-options', permission_classes=[IsAuthenticated, IsManagerOrAbove])
     def odoo_options(self, request, pk=None):
         """Fetch live Partners and Products from Odoo for configuration."""
         integration = self.get_object()
