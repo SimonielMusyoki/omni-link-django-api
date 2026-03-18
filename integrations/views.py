@@ -21,10 +21,10 @@ from authentication.permissions import IsAdminOrOwner
 
 logger = logging.getLogger(__name__)
 
-from .models import Integration, ProductMarketMapping, OrderSyncLog
+from .models import Integration, OrderSyncLog
 from .serializers import (
     IntegrationSerializer,
-    ProductMarketMappingSerializer,
+
     OrderSyncLogSerializer,
 )
 from integrations.services import (
@@ -472,49 +472,6 @@ class ShopifyWebhookView(APIView):
         return Response({'status': 'accepted', **result}, status=status.HTTP_200_OK)
 
 
-class ProductMarketMappingViewSet(viewsets.ModelViewSet):
-    """CRUD for per-market product ID mappings (Odoo & QuickBooks)."""
-
-    queryset = (
-        ProductMarketMapping.objects
-        .select_related('product', 'market')
-        .order_by('product__name', 'market__name')
-    )
-    serializer_class = ProductMarketMappingSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['product', 'market']
-    search_fields = ['product__name', 'product__sku', 'market__name']
-    ordering_fields = ['product__name', 'market__name', 'updated_at']
-
-    @action(detail=False, methods=['post'], url_path='bulk-upsert')
-    def bulk_upsert(self, request):
-        """Accepts a list of {product, market, odoo_product_id, quickbooks_product_id}
-        and creates/updates mappings in bulk."""
-        items = request.data if isinstance(request.data, list) else []
-        if not items:
-            return Response(
-                {'detail': 'Expected a non-empty list.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        results = []
-        for item in items:
-            product_id = item.get('product')
-            market_id = item.get('market')
-            if not product_id or not market_id:
-                continue
-            mapping, _ = ProductMarketMapping.objects.update_or_create(
-                product_id=product_id,
-                market_id=market_id,
-                defaults={
-                    'odoo_product_id': item.get('odoo_product_id', ''),
-                    'quickbooks_product_id': item.get('quickbooks_product_id', ''),
-                },
-            )
-            results.append(ProductMarketMappingSerializer(mapping).data)
-
-        return Response(results, status=status.HTTP_200_OK)
 
 
 class OrderSyncLogViewSet(viewsets.ReadOnlyModelViewSet):

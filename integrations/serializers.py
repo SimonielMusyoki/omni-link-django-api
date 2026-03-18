@@ -8,7 +8,6 @@ from .models import (
     ShopifyCredentials,
     OdooCredentials,
     QuickBooksCredentials,
-    ProductMarketMapping,
     OrderSyncLog,
 )
 
@@ -317,20 +316,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
         return {}
 
 
-class ProductMarketMappingSerializer(serializers.ModelSerializer):
-    product_name = serializers.CharField(source='product.name', read_only=True)
-    product_sku = serializers.CharField(source='product.sku', read_only=True)
-    market_name = serializers.CharField(source='market.name', read_only=True)
 
-    class Meta:
-        model = ProductMarketMapping
-        fields = [
-            'id', 'product', 'product_name', 'product_sku',
-            'market', 'market_name',
-            'odoo_product_id', 'quickbooks_product_id',
-            'created_at', 'updated_at',
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+
 
 
 class OrderSyncLogSerializer(serializers.ModelSerializer):

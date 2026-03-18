@@ -138,7 +138,7 @@ class ProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             'id', 'name', 'description', 'sku', 'category', 'category_name',
-            'price', 'reorder_level', 'image_url', 'odoo_product_id', 'quickbooks_product_id', 'is_bundle', 'is_kit', 'is_physical',
+            'price', 'reorder_level', 'image_url', 'is_bundle', 'is_kit', 'is_physical',
             'bundle_items', 'bundle_items_input', 'kit_items', 'kit_items_input',
             'total_stock', 'needs_reorder',
             'created_at', 'updated_at',

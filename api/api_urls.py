@@ -10,7 +10,7 @@ from products.views import (
     InventoryTransferViewSet,
     MarketViewSet,
 )
-from integrations.views import IntegrationViewSet, ShopifyWebhookView, ProductMarketMappingViewSet, OrderSyncLogViewSet, QuickBooksOAuthCallbackView
+from integrations.views import IntegrationViewSet, ShopifyWebhookView, OrderSyncLogViewSet, QuickBooksOAuthCallbackView
 from orders.views import OrderViewSet
 from shipments.views import ShipmentViewSet
 from product_requests.views import RequestViewSet
@@ -27,7 +27,6 @@ router.register(r'kit-items', BundleItemViewSet, basename='kit-item')
 router.register(r'inventory', InventoryViewSet, basename='inventory')
 router.register(r'transfers', InventoryTransferViewSet, basename='transfer')
 router.register(r'integrations', IntegrationViewSet, basename='integration')
-router.register(r'product-mappings', ProductMarketMappingViewSet, basename='product-mapping')
 router.register(r'sync-logs', OrderSyncLogViewSet, basename='sync-log')
 
 # Other apps

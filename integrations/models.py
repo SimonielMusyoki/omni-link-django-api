@@ -253,49 +253,6 @@ class ShopifyWebhookDelivery(models.Model):
         return f'{self.webhook_id} ({self.topic})'
 
 
-class ProductMarketMapping(models.Model):
-    """Maps a product to its Odoo/QuickBooks IDs for a specific market."""
-
-    product = models.ForeignKey(
-        Product,
-        on_delete=models.CASCADE,
-        related_name='market_mappings',
-    )
-    market = models.ForeignKey(
-        Market,
-        on_delete=models.CASCADE,
-        related_name='product_mappings',
-    )
-    odoo_product_id = models.CharField(
-        max_length=255,
-        blank=True,
-        default='',
-        help_text='Odoo product template ID for this market',
-    )
-    quickbooks_product_id = models.CharField(
-        max_length=255,
-        blank=True,
-        default='',
-        help_text='QuickBooks item ID for this market',
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['product', 'market']
-        constraints = [
-            models.UniqueConstraint(
-                fields=['product', 'market'],
-                name='unique_product_market_mapping',
-            ),
-        ]
-        indexes = [
-            models.Index(fields=['product', 'market']),
-        ]
-
-    def __str__(self):
-        return f'{self.product.name} → {self.market.name}'
-
 
 class OrderSyncLog(models.Model):
     """Tracks individual sync attempts of an order to Odoo or QuickBooks."""

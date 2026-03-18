@@ -21,7 +21,7 @@ from django.utils import timezone
 from orders.models import Order, OrderItem
 from products.models import Product, Category, ProductBundle, Market
 
-from .models import Integration, OdooCredentials, ProductMarketMapping, QuickBooksCredentials, ShopifyWebhookDelivery
+from .models import Integration, OdooCredentials, QuickBooksCredentials, ShopifyWebhookDelivery
 
 logger = logging.getLogger(__name__)
 
@@ -357,50 +357,43 @@ def _get_odoo_connection(
     return creds, models_proxy, cast(int, uid), partner_id
 
 
-def _resolve_odoo_product_id(
-    item: OrderItem,
-    order: Order,
+def _resolve_odoo_product_by_sku(
+    sku: str,
     models_proxy: xmlrpc_client.ServerProxy,
     creds: OdooCredentials,
     uid: int,
+    sku_cache: dict[str, int | None] | None = None,
 ) -> int | None:
-    """Resolve the Odoo product.product ID for an order item.
+    """Resolve an Odoo product.product ID by matching the SKU to Odoo's
+    Internal Reference (default_code).
 
-    Priority:
-      1. Per-market ProductMarketMapping.odoo_product_id
-      2. Global product.odoo_product_id (product template → variant lookup)
+    Uses an optional sku_cache dict to avoid redundant XML-RPC calls
+    within the same order.
     """
-    # 1. Per-market mapping takes precedence
-    if item.product_id and hasattr(order, 'market_id') and order.market_id:
-        mapping = ProductMarketMapping.objects.filter(
-            product_id=item.product_id,
-            market_id=order.market_id,
-        ).first()
-        if mapping and mapping.odoo_product_id:
-            try:
-                return int(mapping.odoo_product_id)
-            except (ValueError, TypeError):
-                pass
+    if not sku:
+        return None
 
-    # 2. Global product template → variant lookup
-    if item.product_id and item.product and item.product.odoo_product_id:
-        try:
-            odoo_tmpl_id = int(item.product.odoo_product_id)
-            product_matches = cast(
-                list[int],
-                _odoo_execute(
-                    models_proxy, creds.database_url, uid, creds.api_key,
-                    'product.product', 'search',
-                    [[['product_tmpl_id', '=', odoo_tmpl_id]]],
-                    {'limit': 1},
-                ),
-            )
-            if product_matches:
-                return product_matches[0]
-        except (ValueError, TypeError):
-            pass
+    if sku_cache is not None and sku in sku_cache:
+        return sku_cache[sku]
 
-    return None
+    try:
+        matches = cast(
+            list[int],
+            _odoo_execute(
+                models_proxy, creds.database_url, uid, creds.api_key,
+                'product.product', 'search',
+                [[['default_code', '=', sku]]],
+                {'limit': 1},
+            ),
+        )
+        result = matches[0] if matches else None
+    except Exception:  # noqa: BLE001
+        logger.warning('Odoo product lookup by SKU %r failed', sku)
+        result = None
+
+    if sku_cache is not None:
+        sku_cache[sku] = result
+    return result
 
 
 def _apply_company_id(vals: dict[str, Any], creds: OdooCredentials) -> None:
@@ -452,6 +445,7 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
     """
     creds, models_proxy, uid, partner_id = _get_odoo_connection(integration, order)
 
+    sku_cache: dict[str, int | None] = {}
     order_lines: list[tuple[int, int, dict[str, Any]]] = []
     for item in order.items.all():
         line_vals: dict[str, Any] = {
@@ -460,7 +454,7 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
             'price_unit': float(item.unit_price),
         }
 
-        odoo_pid = _resolve_odoo_product_id(item, order, models_proxy, creds, uid)
+        odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
         if odoo_pid:
             line_vals['product_id'] = odoo_pid
 
@@ -512,6 +506,7 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
     """
     creds, models_proxy, uid, partner_id = _get_odoo_connection(integration, order)
 
+    sku_cache: dict[str, int | None] = {}
     invoice_lines: list[tuple[int, int, dict[str, Any]]] = []
     for item in order.items.all():
         line_vals: dict[str, Any] = {
@@ -520,7 +515,7 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
             'price_unit': float(item.unit_price),
         }
 
-        odoo_pid = _resolve_odoo_product_id(item, order, models_proxy, creds, uid)
+        odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
         if odoo_pid:
             line_vals['product_id'] = odoo_pid
 
@@ -581,7 +576,7 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
     creds, models_proxy, uid, partner_id = _get_odoo_connection(integration, order)
     odoo_so_id = int(order.odoo_sales_order_id)
 
-    # Build new order lines
+    sku_cache: dict[str, int | None] = {}
     order_lines: list[tuple[int, int, dict[str, Any]]] = []
     for item in order.items.all():
         line_vals: dict[str, Any] = {
@@ -590,7 +585,7 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
             'price_unit': float(item.unit_price),
         }
 
-        odoo_pid = _resolve_odoo_product_id(item, order, models_proxy, creds, uid)
+        odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
         if odoo_pid:
             line_vals['product_id'] = odoo_pid
 
@@ -643,7 +638,7 @@ def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
     creds, models_proxy, uid, partner_id = _get_odoo_connection(integration, order)
     odoo_inv_id = int(order.odoo_sales_invoice_id)
 
-    # Build new invoice lines
+    sku_cache: dict[str, int | None] = {}
     invoice_lines: list[tuple[int, int, dict[str, Any]]] = []
     for item in order.items.all():
         line_vals: dict[str, Any] = {
@@ -652,7 +647,7 @@ def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
             'price_unit': float(item.unit_price),
         }
 
-        odoo_pid = _resolve_odoo_product_id(item, order, models_proxy, creds, uid)
+        odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
         if odoo_pid:
             line_vals['product_id'] = odoo_pid
 
@@ -745,21 +740,10 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
             },
         }
 
-        # Per-market product mapping takes precedence over global product ID
-        qb_product_id = ''
-        if item.product_id and hasattr(order, 'market_id') and order.market_id:
-            mapping = ProductMarketMapping.objects.filter(
-                product_id=item.product_id,
-                market_id=order.market_id,
-            ).first()
-            if mapping and mapping.quickbooks_product_id:
-                qb_product_id = mapping.quickbooks_product_id
-
-        if not qb_product_id and item.product_id and item.product:
-            qb_product_id = str(getattr(item.product, 'quickbooks_product_id', '') or '')
-
-        if qb_product_id:
-            line['SalesItemLineDetail']['ItemRef'] = {'value': qb_product_id}
+        # Use SKU to match QuickBooks Item by name
+        sku = item.sku or ''
+        if sku:
+            line['SalesItemLineDetail']['ItemRef'] = {'name': sku}
 
         # Tax code
         if creds.tax_id:
@@ -865,21 +849,10 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
             },
         }
 
-        # Per-market product mapping
-        qb_product_id = ''
-        if item.product_id and hasattr(order, 'market_id') and order.market_id:
-            mapping = ProductMarketMapping.objects.filter(
-                product_id=item.product_id,
-                market_id=order.market_id,
-            ).first()
-            if mapping and mapping.quickbooks_product_id:
-                qb_product_id = mapping.quickbooks_product_id
-
-        if not qb_product_id and item.product_id and item.product:
-            qb_product_id = str(getattr(item.product, 'quickbooks_product_id', '') or '')
-
-        if qb_product_id:
-            line['SalesItemLineDetail']['ItemRef'] = {'value': qb_product_id}
+        # Use SKU to match QuickBooks Item by name
+        sku = item.sku or ''
+        if sku:
+            line['SalesItemLineDetail']['ItemRef'] = {'name': sku}
 
         if creds.tax_id:
             line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}

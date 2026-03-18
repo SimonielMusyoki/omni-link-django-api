@@ -16,7 +16,6 @@ from integrations.models import (
     QuickBooksCredentials,
     ShopifyCredentials,
     ShopifyWebhookDelivery,
-    ProductMarketMapping,
 )
 from integrations.services import _resolve_order_channel, _normalize_market_and_currency
 from integrations.services import _resolve_configured_odoo_partner_id
@@ -467,16 +466,14 @@ class QuickBooksInvoiceCreationTests(APITestCase):
         class IntegrationStub:
             quickbooks_credentials = QuickBooksCreds()
 
-        class ProductStub:
-            quickbooks_product_id = '501'
-
         class ItemStub:
             product_name = 'Test Product'
             quantity = 2
             unit_price = '10.00'
             total_price = '20.00'
             product_id = 1
-            product = ProductStub()
+            product = None
+            sku = 'SKU-501'
 
         class ItemManagerStub:
             @staticmethod
@@ -503,8 +500,8 @@ class QuickBooksInvoiceCreationTests(APITestCase):
         self.assertEqual(kwargs['headers']['Authorization'], 'Bearer valid-token')
         self.assertEqual(kwargs['json']['CustomerRef']['value'], '7001')
         self.assertEqual(
-            kwargs['json']['Line'][0]['SalesItemLineDetail']['ItemRef']['value'],
-            '501',
+            kwargs['json']['Line'][0]['SalesItemLineDetail']['ItemRef']['name'],
+            'SKU-501',
         )
 
     @patch('integrations.services.requests.request')
@@ -530,16 +527,14 @@ class QuickBooksInvoiceCreationTests(APITestCase):
         class IntegrationStub:
             quickbooks_credentials = QuickBooksCreds()
 
-        class ProductStub:
-            quickbooks_product_id = '501'
-
         class ItemStub:
             product_name = 'Aloe Gel'
             quantity = 2
             unit_price = '15.00'
             total_price = '30.00'
             product_id = 1
-            product = ProductStub()
+            product = None
+            sku = 'SKU-501'
 
         class ItemManagerStub:
             @staticmethod
@@ -1158,82 +1153,3 @@ class QuickBooksRetryTests(APITestCase):
         self.assertEqual(result.status_code, 200)
         self.assertEqual(mock_request.call_count, 2)
 
-
-class QuickBooksPerMarketMappingTests(APITestCase):
-    @patch('integrations.services.requests.request')
-    @patch('integrations.services._ensure_quickbooks_token', return_value='valid-token')
-    def test_quickbooks_invoice_uses_market_product_mapping(self, _token_mock, request_mock):
-        """Per-market product mapping should override global product quickbooks_product_id."""
-        market = Market.objects.get_or_create(
-            name='Nigeria',
-            defaults={'code': 'NG', 'currency': 'NGN'},
-        )[0]
-        cat = Category.objects.create(name='Skincare')
-        product = Product.objects.create(
-            name='Test Gel',
-            sku='SKU-MAP',
-            category=cat,
-            price='25.00',
-            quickbooks_product_id='GLOBAL-500',
-        )
-
-        integration = Integration.objects.create(
-            name='NG QuickBooks', type='QUICKBOOKS', market='Nigeria', status='ACTIVE',
-        )
-        creds = QuickBooksCredentials.objects.create(
-            integration=integration,
-            realm_id='realm',
-            client_id='client',
-            client_key='key',
-            access_token='token',
-            refresh_token='refresh',
-            sukhiba_customer_id='9001',
-            pos_customer_id='9002',
-            ecommerce_customer_id='9003',
-        )
-        ProductMarketMapping.objects.create(
-            product=product,
-            market=market,
-            quickbooks_product_id='MARKET-777',
-        )
-
-        _product = product  # capture in closure-friendly variable
-
-        class ItemStub:
-            product_name = 'Test Gel'
-            quantity = 1
-            unit_price = '25.00'
-            total_price = '25.00'
-            product_id = _product.id
-
-            @property
-            def product(self):
-                return _product
-
-        class ItemManagerStub:
-            @staticmethod
-            def all():
-                return [ItemStub()]
-
-        class OrderStub:
-            order_number = 'ORD-MAP-1'
-            shopify_tags = ''
-            order_channel = Order.CHANNEL_WEBSITE
-            items = ItemManagerStub()
-            market_id = market.id
-            shipping_price = 0
-
-        class IntegrationStub:
-            quickbooks_credentials = creds
-
-        response_mock = MagicMock()
-        response_mock.status_code = 200
-        response_mock.json.return_value = {'Invoice': {'Id': 'INV-MAP'}}
-        request_mock.return_value = response_mock
-
-        invoice_id = create_quickbooks_sales_invoice(IntegrationStub(), OrderStub())
-        self.assertEqual(invoice_id, 'INV-MAP')
-
-        _, kwargs = request_mock.call_args
-        item_ref = kwargs['json']['Line'][0]['SalesItemLineDetail']['ItemRef']['value']
-        self.assertEqual(item_ref, 'MARKET-777')

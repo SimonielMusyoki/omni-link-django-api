@@ -6,7 +6,6 @@ from .models import (
     ShopifyCredentials,
     OdooCredentials,
     QuickBooksCredentials,
-    ProductMarketMapping,
     OrderSyncLog,
 )
 
@@ -16,13 +15,6 @@ class IntegrationAdmin(admin.ModelAdmin):
     list_display = ('id', 'name', 'type', 'market', 'status', 'auto_sync_orders', 'warehouse', 'last_sync')
     list_filter = ('type', 'market', 'status', 'auto_sync_orders')
     search_fields = ('name', 'market')
-
-
-@admin.register(ProductMarketMapping)
-class ProductMarketMappingAdmin(admin.ModelAdmin):
-    list_display = ('product', 'market', 'odoo_product_id', 'quickbooks_product_id')
-    list_filter = ('market',)
-    search_fields = ('product__name', 'product__sku')
 
 
 @admin.register(OrderSyncLog)
@@ -35,4 +27,3 @@ class OrderSyncLogAdmin(admin.ModelAdmin):
 admin.site.register(ShopifyCredentials)
 admin.site.register(OdooCredentials)
 admin.site.register(QuickBooksCredentials)
-
