@@ -252,10 +252,56 @@ def _test_quickbooks(integration: Integration):
             company_info = body.get('CompanyInfo', {})
             company_name = company_info.get('CompanyName', 'Unknown')
             return True, f'Connected to QuickBooks company: {company_name}'
-
-        return False, f'QuickBooks connection failed with status {resp.status_code}.'
+        if resp.status_code == 401:
+            return False, 'Not connected (OAuth tokens expired or revoked). Please reconnect.'
+        return False, f'Integration failed: QuickBooks returned status {resp.status_code}'
     except ValueError as exc:
         return False, str(exc)
+
+def fetch_quickbooks_options(integration: Integration) -> dict[str, list[dict[str, str]]]:
+    creds = getattr(integration, 'quickbooks_credentials', None)
+    if not creds:
+        raise ValueError('QuickBooks credentials not configured.')
+    if not creds.access_token:
+        raise ValueError('QuickBooks not connected.')
+
+    from urllib.parse import quote
+
+    # 1. Fetch Customers
+    cust_query = quote('SELECT Id, DisplayName FROM Customer WHERE Active = true MAXRESULTS 1000')
+    cust_url = f'{creds.api_base_url}/v3/company/{creds.realm_id}/query?query={cust_query}&minorversion=75'
+    cust_resp = _quickbooks_request('GET', cust_url, creds)
+    
+    customers = []
+    if cust_resp.status_code == 200:
+        data = cust_resp.json().get('QueryResponse', {})
+        for c in data.get('Customer', []):
+            customers.append({
+                'id': str(c.get('Id', '')),
+                'name': str(c.get('DisplayName', '')),
+            })
+            
+    # 2. Fetch Tax Codes
+    tax_query = quote('SELECT Id, Name, Description FROM TaxCode WHERE Active = true MAXRESULTS 1000')
+    tax_url = f'{creds.api_base_url}/v3/company/{creds.realm_id}/query?query={tax_query}&minorversion=75'
+    tax_resp = _quickbooks_request('GET', tax_url, creds)
+
+    tax_codes = []
+    if tax_resp.status_code == 200:
+        data = tax_resp.json().get('QueryResponse', {})
+        for t in data.get('TaxCode', []):
+            name = str(t.get('Name', ''))
+            desc = str(t.get('Description', ''))
+            display = f'{name} - {desc}' if desc and desc != name else name
+            tax_codes.append({
+                'id': str(t.get('Id', '')),
+                'name': display,
+            })
+
+    return {
+        'customers': sorted(customers, key=lambda x: x['name'].lower()),
+        'tax_codes': sorted(tax_codes, key=lambda x: x['name'].lower()),
+    }
 
 
 def test_integration_connection(integration: Integration):

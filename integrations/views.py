@@ -297,6 +297,26 @@ class IntegrationViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST,
         )
 
+    @action(detail=True, methods=['get'], url_path='quickbooks-options')
+    def quickbooks_options(self, request, pk=None):
+        """Fetch live Customers and Tax Codes from QuickBooks for configuration."""
+        integration = self.get_object()
+        if integration.type != Integration.IntegrationType.QUICKBOOKS:
+            return Response(
+                {'detail': 'This action is only for QuickBooks integrations.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        from integrations.services import fetch_quickbooks_options
+        try:
+            options = fetch_quickbooks_options(integration)
+            return Response(options)
+        except Exception as exc:  # noqa: BLE001
+            return Response(
+                {'detail': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     @action(detail=True, methods=['post'], url_path='quickbooks-auth-url')
     def quickbooks_auth_url(self, request, pk=None):
         """Generate the QuickBooks OAuth 2.0 authorization URL."""

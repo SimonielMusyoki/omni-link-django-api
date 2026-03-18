@@ -1,7 +1,7 @@
 # pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportAttributeAccessIssue=false
 from django.db import models
 
-from products.models import Market, Product, Warehouse
+from products.models import Warehouse
 
 
 class Integration(models.Model):
