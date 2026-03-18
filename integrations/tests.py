@@ -19,7 +19,12 @@ from integrations.models import (
 )
 from integrations.services import _resolve_order_channel, _normalize_market_and_currency
 from integrations.services import _resolve_configured_odoo_partner_id
-from integrations.services import _resolve_configured_quickbooks_customer_id, create_quickbooks_sales_invoice
+from integrations.services import (
+    _resolve_configured_quickbooks_customer_id,
+    _fetch_qb_sku_map,
+    _resolve_qb_item_ref,
+    create_quickbooks_sales_invoice,
+)
 from orders.models import Order
 from products.models import Product, Category, Market, Warehouse
 
@@ -462,6 +467,7 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             shipping_fee_account_id = ''
             invoice_prefix = ''
             api_base_url = 'https://sandbox-quickbooks.api.intuit.com'
+            default_product_id = 'QB-PROD-001'
 
         class IntegrationStub:
             quickbooks_credentials = QuickBooksCreds()
@@ -482,16 +488,24 @@ class QuickBooksInvoiceCreationTests(APITestCase):
 
         class OrderStub:
             order_number = 'ORD-1001'
+            shopify_order_number = '#1001'
             shopify_tags = 'origin:sukhiba'
             order_channel = Order.CHANNEL_WEBSITE
             items = ItemManagerStub()
             market_id = None
             shipping_price = 0
 
-        response = MagicMock()
-        response.status_code = 200
-        response.json.return_value = {'Invoice': {'Id': 'INV-9001'}}
-        request_mock.return_value = response
+        sku_map_response = MagicMock()
+        sku_map_response.status_code = 200
+        sku_map_response.json.return_value = {
+            'QueryResponse': {'Item': [{'Name': 'Test Product', 'Sku': 'SKU-501', 'Id': 'QB-ITEM-1'}]}
+        }
+
+        invoice_response = MagicMock()
+        invoice_response.status_code = 200
+        invoice_response.json.return_value = {'Invoice': {'Id': 'INV-9001'}}
+
+        request_mock.side_effect = [sku_map_response, invoice_response]
 
         invoice_id = create_quickbooks_sales_invoice(IntegrationStub(), OrderStub())
 
@@ -523,6 +537,7 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             shipping_fee_account_id = 'SHIP-001'
             invoice_prefix = 'SHT'
             api_base_url = 'https://sandbox-quickbooks.api.intuit.com'
+            default_product_id = 'QB-PROD-001'
 
         class IntegrationStub:
             quickbooks_credentials = QuickBooksCreds()
@@ -543,6 +558,7 @@ class QuickBooksInvoiceCreationTests(APITestCase):
 
         class OrderStub:
             order_number = 'ORD-5555'
+            shopify_order_number = '#5555'
             shopify_tags = ''
             order_channel = Order.CHANNEL_WEBSITE
             items = ItemManagerStub()
@@ -581,6 +597,82 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             shipping_line['SalesItemLineDetail']['TaxCodeRef']['value'],
             'TAX-001',
         )
+
+
+class FetchQbSkuMapTests(APITestCase):
+    """Unit tests for _fetch_qb_sku_map."""
+
+    def _make_creds(self):
+        class Creds:
+            api_base_url = 'https://sandbox-quickbooks.api.intuit.com'
+            realm_id = 'realm-001'
+        return Creds()
+
+    @patch('integrations.services.requests.request')
+    @patch('integrations.services._ensure_quickbooks_token', return_value='tok')
+    def test_maps_sku_field_over_name(self, _, req_mock):
+        """Item Sku field takes priority over Name when building the map."""
+        req_mock.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                'QueryResponse': {
+                    'Item': [{'Id': '42', 'Name': 'Aloe Gel', 'Sku': 'SKU-501'}]
+                }
+            },
+        )
+        result = _fetch_qb_sku_map(self._make_creds())
+        self.assertEqual(result['sku-501'], '42')   # matched via Sku field
+        self.assertEqual(result['aloe gel'], '42')  # Name still present as fallback
+
+    @patch('integrations.services.requests.request')
+    @patch('integrations.services._ensure_quickbooks_token', return_value='tok')
+    def test_name_used_when_no_sku_field(self, _, req_mock):
+        """When QBO item has no Sku field, Name is used as the only key."""
+        req_mock.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                'QueryResponse': {
+                    'Item': [{'Id': '99', 'Name': 'SKU-999'}]
+                }
+            },
+        )
+        result = _fetch_qb_sku_map(self._make_creds())
+        self.assertEqual(result['sku-999'], '99')
+
+    @patch('integrations.services.requests.request')
+    @patch('integrations.services._ensure_quickbooks_token', return_value='tok')
+    def test_non_200_returns_empty_map(self, _, req_mock):
+        req_mock.return_value = MagicMock(status_code=503)
+        result = _fetch_qb_sku_map(self._make_creds())
+        self.assertEqual(result, {})
+
+
+class ResolveQbItemRefTests(APITestCase):
+    """Unit tests for _resolve_qb_item_ref."""
+
+    def test_exact_sku_match_returns_value_and_name(self):
+        sku_map = {'sku-501': 'QB-ITEM-1', 'aloe gel': 'QB-ITEM-1'}
+        ref = _resolve_qb_item_ref('SKU-501', sku_map, 'DEFAULT-ID')
+        self.assertEqual(ref, {'value': 'QB-ITEM-1', 'name': 'SKU-501'})
+
+    def test_case_insensitive_match(self):
+        sku_map = {'sku-501': 'QB-ITEM-1'}
+        ref = _resolve_qb_item_ref('sku-501', sku_map, 'DEFAULT-ID')
+        self.assertIsNotNone(ref)
+        assert ref is not None
+        self.assertEqual(ref['value'], 'QB-ITEM-1')
+
+    def test_missing_sku_falls_back_to_default(self):
+        ref = _resolve_qb_item_ref('SKU-UNKNOWN', {}, 'DEFAULT-ID')
+        self.assertEqual(ref, {'value': 'DEFAULT-ID'})
+
+    def test_no_sku_no_default_returns_none(self):
+        ref = _resolve_qb_item_ref('', {}, '')
+        self.assertIsNone(ref)
+
+    def test_no_match_no_default_returns_none(self):
+        ref = _resolve_qb_item_ref('SKU-MISSING', {'other-sku': '5'}, '')
+        self.assertIsNone(ref)
 
 
 class IntegrationPermissionTests(APITestCase):

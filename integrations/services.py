@@ -1009,14 +1009,19 @@ def _resolve_configured_quickbooks_customer_id(
 
 
 def _fetch_qb_sku_map(creds: 'QuickBooksCredentials') -> dict[str, str]:
-    """Return a lowercase-name → QB-item-id mapping for all active QB items.
+    """Return a lowercase-key → QB-item-id mapping for all active QB items.
 
-    Used to resolve Shopify SKUs to QB Item IDs so line items use ``value``
-    (the stable internal ID) rather than ``name`` (which causes silent fallbacks
-    when the name doesn't match exactly).
+    Each item contributes up to two entries:
+    - Its ``Name`` (display name) as a fallback key.
+    - Its ``Sku`` field as the preferred key (overrides the Name entry when
+      both are present, so order-line SKUs resolve against the dedicated QBO
+      SKU field first).
+
+    This lets the SKU on an order line match the ``Sku`` attribute stored on
+    the QBO item rather than requiring the item's display name to equal the SKU.
     """
     from urllib.parse import quote as _quote
-    query = _quote('SELECT Id, Name FROM Item WHERE Active = true MAXRESULTS 1000')
+    query = _quote('SELECT Id, Name, Sku FROM Item WHERE Active = true MAXRESULTS 1000')
     url = (
         f'{creds.api_base_url}/v3/company/{creds.realm_id}'
         f'/query?query={query}&minorversion=75'
@@ -1026,7 +1031,18 @@ def _fetch_qb_sku_map(creds: 'QuickBooksCredentials') -> dict[str, str]:
         logger.warning('QB item map fetch returned %d — SKU lookup disabled', resp.status_code)
         return {}
     items = resp.json().get('QueryResponse', {}).get('Item', [])
-    return {str(i.get('Name', '')).lower(): str(i.get('Id', '')) for i in items}
+    sku_map: dict[str, str] = {}
+    for i in items:
+        item_id = str(i.get('Id', ''))
+        if not item_id:
+            continue
+        name = str(i.get('Name', '')).strip().lower()
+        sku = str(i.get('Sku', '')).strip().lower()
+        if name:
+            sku_map[name] = item_id   # display-name fallback
+        if sku:
+            sku_map[sku] = item_id    # Sku field takes priority
+    return sku_map
 
 
 def _resolve_qb_item_ref(
@@ -1037,14 +1053,16 @@ def _resolve_qb_item_ref(
     """Return the QB ItemRef dict for a line item.
 
     Lookup order:
-    1. Exact case-insensitive SKU match in QB items → {'value': id}
-    2. Configured default product               → {'value': default_product_id}
-    3. No match and no default                  → None (QB will omit ItemRef)
+    1. Case-insensitive match of the order SKU against the QB items map
+       (which prefers the QBO item's ``Sku`` field over its display name)
+       → {'value': id, 'name': sku}
+    2. Configured default product → {'value': default_product_id}
+    3. No match and no default   → None (QB will omit ItemRef)
     """
     if sku:
         item_id = sku_map.get(sku.lower())
         if item_id:
-            return {'value': item_id}
+            return {'value': item_id, 'name': sku}
         logger.warning('QB SKU "%s" not found in items list — falling back to default', sku)
     if default_product_id:
         return {'value': default_product_id}
@@ -1111,15 +1129,15 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
         lines.append(shipping_line)
 
     # Invoice number: prefix + Shopify order number with leading '#' stripped.
-    # e.g. prefix="SHT", order_number="#1515" → "SHT1515"
+    # e.g. prefix="SHT", shopify_order_number="#1515" → "SHT1515"
     prefix = str(creds.invoice_prefix or '').strip()
-    raw_number = str(order.order_number).lstrip('#')
+    raw_number = str(order.shopify_order_number).lstrip('#')
     doc_number = f'{prefix}{raw_number}'[:21]
 
     payload: dict[str, Any] = {
         'DocNumber': doc_number,
         'CustomerRef': {'value': customer_id},
-        'PrivateNote': f'Omni-Link order {order.order_number}',
+        'PrivateNote': f'Omni-Link order {order.shopify_order_number}',
         'Line': lines,
     }
 
