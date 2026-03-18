@@ -276,6 +276,55 @@ def _qb_check_response(resp: requests.Response, label: str) -> None:
     )
 
 
+def _ensure_qb_environment(creds: 'QuickBooksCredentials') -> None:
+    """Detect and fix the QB environment (SANDBOX vs PRODUCTION) by probing both API endpoints.
+
+    QB returns 403 ApplicationAuthorizationFailed when the access token is for a different
+    environment than the one configured (e.g. production token + sandbox base URL). This helper
+    silently corrects the environment so that all subsequent API calls use the right base URL.
+    """
+    if not creds.realm_id:
+        return
+
+    # Ensure we probe with a fresh (non-expired) token. If refresh fails (no refresh token),
+    # bail out — the caller's _quickbooks_request will surface the real error.
+    try:
+        access_token = _ensure_quickbooks_token(creds)
+    except ValueError:
+        return
+
+    env_map = [
+        ('PRODUCTION', 'https://quickbooks.api.intuit.com'),
+        ('SANDBOX', 'https://sandbox-quickbooks.api.intuit.com'),
+    ]
+
+    # Try the currently configured environment first — skip the probe if it's already correct.
+    if creds.environment == 'SANDBOX':
+        env_map = list(reversed(env_map))
+
+    for env_value, base_url in env_map:
+        try:
+            probe = requests.get(
+                f'{base_url}/v3/company/{creds.realm_id}/companyinfo/{creds.realm_id}',
+                headers={
+                    'Authorization': f'Bearer {access_token}',
+                    'Accept': 'application/json',
+                },
+                timeout=10,
+            )
+            if probe.status_code == 200:
+                if creds.environment != env_value:
+                    logger.info(
+                        'QB environment mismatch detected: was %s, correcting to %s for integration %s',
+                        creds.environment, env_value, creds.integration_id,
+                    )
+                    creds.environment = env_value
+                    creds.save(update_fields=['environment'])
+                return
+        except requests.RequestException:
+            continue
+
+
 def fetch_quickbooks_options(integration: Integration) -> dict[str, list[dict[str, str]]]:
     creds = getattr(integration, 'quickbooks_credentials', None)
     if not creds:
@@ -284,6 +333,8 @@ def fetch_quickbooks_options(integration: Integration) -> dict[str, list[dict[st
         raise ValueError('QuickBooks not connected. Please complete the OAuth authorization flow.')
     if not creds.realm_id:
         raise ValueError('QuickBooks Realm ID is missing. Please reconnect via the OAuth flow.')
+
+    _ensure_qb_environment(creds)
 
     from urllib.parse import quote
 
@@ -963,6 +1014,8 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
     if not creds:
         raise ValueError('QuickBooks credentials not configured for this integration.')
 
+    _ensure_qb_environment(creds)
+
     customer_id = _resolve_configured_quickbooks_customer_id(creds, order)
 
     endpoint = f'{creds.api_base_url}/v3/company/{creds.realm_id}/invoice?minorversion=75'
@@ -1058,6 +1111,8 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
     creds = getattr(integration, 'quickbooks_credentials', None)
     if not creds:
         raise ValueError('QuickBooks credentials not configured for this integration.')
+
+    _ensure_qb_environment(creds)
 
     qb_invoice_id = order.quickbooks_sales_invoice_id
     customer_id = _resolve_configured_quickbooks_customer_id(creds, order)

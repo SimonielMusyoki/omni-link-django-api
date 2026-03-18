@@ -135,14 +135,40 @@ class QuickBooksOAuthCallbackView(APIView):
 
         data = token_response.json()
 
+        access_token = data.get('access_token', '')
+        effective_realm_id = realm_id or creds.realm_id
+
+        # Auto-detect QB environment: try production first, fall back to sandbox.
+        detected_env = creds.environment  # keep existing if detection fails
+        if access_token and effective_realm_id:
+            for env_value, base_url in [
+                ('PRODUCTION', 'https://quickbooks.api.intuit.com'),
+                ('SANDBOX', 'https://sandbox-quickbooks.api.intuit.com'),
+            ]:
+                try:
+                    probe = requests.get(
+                        f'{base_url}/v3/company/{effective_realm_id}/companyinfo/{effective_realm_id}',
+                        headers={
+                            'Authorization': f'Bearer {access_token}',
+                            'Accept': 'application/json',
+                        },
+                        timeout=10,
+                    )
+                    if probe.status_code == 200:
+                        detected_env = env_value
+                        break
+                except requests.RequestException:
+                    continue
+
         with transaction.atomic():
-            creds.access_token = data.get('access_token', '')
+            creds.access_token = access_token
             creds.refresh_token = data.get('refresh_token', '')
             creds.token_expiry = timezone.now() + timedelta(
                 seconds=data.get('expires_in', 3600)
             )
             if realm_id:
                 creds.realm_id = realm_id
+            creds.environment = detected_env
             creds.redirect_uri = redirect_uri
             creds.oauth_state = ''  # Consume the nonce
             creds.save()
