@@ -1246,7 +1246,7 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
         lines.append(shipping_line)
 
     prefix = str(creds.invoice_prefix or '').strip()
-    raw_number = str(order.order_number).lstrip('#')
+    raw_number = str(order.shopify_order_number).lstrip('#')
     doc_number = f'{prefix}{raw_number}'[:21]
 
     # 3. POST update — must include Id and SyncToken

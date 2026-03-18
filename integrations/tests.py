@@ -513,6 +513,8 @@ class QuickBooksInvoiceCreationTests(APITestCase):
         _, kwargs = request_mock.call_args
         self.assertEqual(kwargs['headers']['Authorization'], 'Bearer valid-token')
         self.assertEqual(kwargs['json']['CustomerRef']['value'], '7001')
+        # DocNumber derived from shopify_order_number ('#1001') with '#' stripped, no prefix
+        self.assertEqual(kwargs['json']['DocNumber'], '1001')
         self.assertEqual(
             kwargs['json']['Line'][0]['SalesItemLineDetail']['ItemRef']['name'],
             'SKU-501',
@@ -576,8 +578,8 @@ class QuickBooksInvoiceCreationTests(APITestCase):
         _, kwargs = request_mock.call_args
         payload = kwargs['json']
 
-        # Invoice prefix
-        self.assertTrue(payload['DocNumber'].startswith('SHT'))
+        # DocNumber = prefix + shopify_order_number with leading '#' stripped
+        self.assertEqual(payload['DocNumber'], 'SHT5555')
 
         # Tax code on product line
         self.assertEqual(
