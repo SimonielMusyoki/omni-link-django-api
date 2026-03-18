@@ -258,12 +258,32 @@ def _test_quickbooks(integration: Integration):
     except ValueError as exc:
         return False, str(exc)
 
+def _qb_check_response(resp: requests.Response, label: str) -> None:
+    """Raise a descriptive ValueError when a QuickBooks API call fails."""
+    if resp.status_code == 200:
+        return
+    try:
+        body = resp.json()
+        fault = body.get('Fault', {})
+        errors = fault.get('Error', [])
+        msg = '; '.join(
+            f"{e.get('Message', '')} (code {e.get('code', '')})" for e in errors
+        ) if errors else resp.text[:300]
+    except Exception:
+        msg = resp.text[:300]
+    raise ValueError(
+        f'QuickBooks {label} request failed (HTTP {resp.status_code}): {msg}'
+    )
+
+
 def fetch_quickbooks_options(integration: Integration) -> dict[str, list[dict[str, str]]]:
     creds = getattr(integration, 'quickbooks_credentials', None)
     if not creds:
         raise ValueError('QuickBooks credentials not configured.')
     if not creds.access_token:
-        raise ValueError('QuickBooks not connected.')
+        raise ValueError('QuickBooks not connected. Please complete the OAuth authorization flow.')
+    if not creds.realm_id:
+        raise ValueError('QuickBooks Realm ID is missing. Please reconnect via the OAuth flow.')
 
     from urllib.parse import quote
 
@@ -271,49 +291,49 @@ def fetch_quickbooks_options(integration: Integration) -> dict[str, list[dict[st
     cust_query = quote('SELECT Id, DisplayName FROM Customer WHERE Active = true MAXRESULTS 1000')
     cust_url = f'{creds.api_base_url}/v3/company/{creds.realm_id}/query?query={cust_query}&minorversion=75'
     cust_resp = _quickbooks_request('GET', cust_url, creds)
-    
+    _qb_check_response(cust_resp, 'Customers')
+
     customers = []
-    if cust_resp.status_code == 200:
-        data = cust_resp.json().get('QueryResponse', {})
-        for c in data.get('Customer', []):
-            customers.append({
-                'id': str(c.get('Id', '')),
-                'name': str(c.get('DisplayName', '')),
-            })
-            
+    data = cust_resp.json().get('QueryResponse', {})
+    for c in data.get('Customer', []):
+        customers.append({
+            'id': str(c.get('Id', '')),
+            'name': str(c.get('DisplayName', '')),
+        })
+
     # 2. Fetch Tax Codes
     tax_query = quote('SELECT Id, Name, Description FROM TaxCode WHERE Active = true MAXRESULTS 1000')
     tax_url = f'{creds.api_base_url}/v3/company/{creds.realm_id}/query?query={tax_query}&minorversion=75'
     tax_resp = _quickbooks_request('GET', tax_url, creds)
+    _qb_check_response(tax_resp, 'TaxCodes')
 
     tax_codes = []
-    if tax_resp.status_code == 200:
-        data = tax_resp.json().get('QueryResponse', {})
-        for t in data.get('TaxCode', []):
-            name = str(t.get('Name', ''))
-            desc = str(t.get('Description', ''))
-            display = f'{name} - {desc}' if desc and desc != name else name
-            tax_codes.append({
-                'id': str(t.get('Id', '')),
-                'name': display,
-            })
+    data = tax_resp.json().get('QueryResponse', {})
+    for t in data.get('TaxCode', []):
+        name = str(t.get('Name', ''))
+        desc = str(t.get('Description', ''))
+        display = f'{name} - {desc}' if desc and desc != name else name
+        tax_codes.append({
+            'id': str(t.get('Id', '')),
+            'name': display,
+        })
 
     # 3. Fetch Items (products) for Default Product dropdown
     item_query = quote('SELECT Id, Name, Type FROM Item WHERE Active = true MAXRESULTS 1000')
     item_url = f'{creds.api_base_url}/v3/company/{creds.realm_id}/query?query={item_query}&minorversion=75'
     item_resp = _quickbooks_request('GET', item_url, creds)
+    _qb_check_response(item_resp, 'Items')
 
     items = []
-    if item_resp.status_code == 200:
-        data = item_resp.json().get('QueryResponse', {})
-        for i in data.get('Item', []):
-            item_type = str(i.get('Type', ''))
-            name = str(i.get('Name', ''))
-            display = f'{name} ({item_type})' if item_type else name
-            items.append({
-                'id': str(i.get('Id', '')),
-                'name': display,
-            })
+    data = item_resp.json().get('QueryResponse', {})
+    for i in data.get('Item', []):
+        item_type = str(i.get('Type', ''))
+        name = str(i.get('Name', ''))
+        display = f'{name} ({item_type})' if item_type else name
+        items.append({
+            'id': str(i.get('Id', '')),
+            'name': display,
+        })
 
     return {
         'customers': sorted(customers, key=lambda x: x['name'].lower()),
