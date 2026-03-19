@@ -495,6 +495,7 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             items = ItemManagerStub()
             market_id = None
             shipping_price = 0
+            discount_amount = 0
 
         sku_map_response = MagicMock()
         sku_map_response.status_code = 200
@@ -568,6 +569,7 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             items = ItemManagerStub()
             market_id = None
             shipping_price = '5.00'
+            discount_amount = 0
 
         response = MagicMock()
         response.status_code = 200

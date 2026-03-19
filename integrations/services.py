@@ -751,6 +751,16 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
 
         order_lines.append((0, 0, line_vals))
 
+    # Discount line item (negative price)
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line: dict[str, Any] = {
+            'name': 'Discount',
+            'product_uom_qty': 1,
+            'price_unit': -discount_amount,
+        }
+        order_lines.append((0, 0, discount_line))
+
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
     if shipping_price > 0 and creds.shipping_fee_account_id:
@@ -817,6 +827,20 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
                 pass
 
         invoice_lines.append((0, 0, line_vals))
+    
+    # Discount line item (negative price)
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line: dict[str, Any] = {
+            'name': 'Discount',
+            'quantity': 1,
+            'price_unit': -discount_amount,
+        }
+        try:
+            discount_line['product_id'] = int(creds.discount_product_id)
+        except (ValueError, TypeError):
+            pass
+        invoice_lines.append((0, 0, discount_line))
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -899,6 +923,16 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
                 pass
 
         order_lines.append((0, 0, line_vals))
+    
+    # Discount line item (negative price)
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line: dict[str, Any] = {
+            'name': 'Discount',
+            'product_uom_qty': 1,
+            'price_unit': -discount_amount,
+        }
+        order_lines.append((0, 0, discount_line))
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -967,6 +1001,20 @@ def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
                 pass
 
         invoice_lines.append((0, 0, line_vals))
+    
+    # Discount line item (negative price)
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line: dict[str, Any] = {
+            'name': 'Discount',
+            'quantity': 1,
+            'price_unit': -discount_amount,
+        }
+        try:
+            discount_line['product_id'] = int(creds.discount_product_id)
+        except (ValueError, TypeError):
+            pass
+        invoice_lines.append((0, 0, discount_line))
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -1083,22 +1131,26 @@ def _resolve_qb_item_ref(
     5. No match and no default   → None (QB will omit ItemRef)
     """
     if mapped_sku:
-        # mapped_sku is the QBO Item ID (from external_sku in ProductIntegrationMapping)
+        # Try mapped_sku as Item ID
         if mapped_sku in sku_map.values():
             return {'value': mapped_sku}
-        logger.warning('QB Mapped Item ID "%s" not found in active items', mapped_sku)
+        # Try mapped_sku as SKU
+        mapped_sku_id = sku_map.get(mapped_sku.lower())
+        if mapped_sku_id:
+            return {'value': mapped_sku_id}
+        logger.warning('QB mapped external_sku "%s" not found as Item ID or SKU in active items', mapped_sku)
 
     if item_sku:
         item_id = sku_map.get(item_sku.lower())
         if item_id:
             return {'value': item_id}
-        logger.warning('QB SKU "%s" not found in items list — falling back to name/default', item_sku)
-        
+        logger.warning('QB SKU "%s" not found in items list  falling back to name/default', item_sku)
+
     if item_name:
         item_id = sku_map.get(item_name.lower())
         if item_id:
             return {'value': item_id}
-            
+
     if default_product_id:
         return {'value': default_product_id}
     return None
@@ -1158,6 +1210,20 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
             line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
 
         lines.append(line)
+
+    # Discount line item (negative amount) if order-level discount exists
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line = {
+            'DetailType': 'SalesItemLineDetail',
+            'Amount': -discount_amount,
+            'Description': 'Order-level discount',
+            'SalesItemLineDetail': {
+                'Qty': 1,
+                'UnitPrice': -discount_amount,
+            },
+        }
+        lines.append(discount_line)
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -1288,6 +1354,20 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
             line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
 
         lines.append(line)
+
+    # Discount line item (negative amount) if order-level discount exists
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line = {
+            'DetailType': 'SalesItemLineDetail',
+            'Amount': -discount_amount,
+            'Description': 'Order Discount',
+            'SalesItemLineDetail': {
+                'Qty': 1,
+                'UnitPrice': -discount_amount,
+            },
+        }
+        lines.append(discount_line)
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -1458,7 +1538,7 @@ def _as_decimal(value: Any) -> Decimal:
         return Decimal("0")
 
 
-def _parse_datetime(value: Any):
+def _parse_datetime(value: Any) -> datetime | None:
     if not value:
         return None
     if isinstance(value, datetime):
@@ -1624,7 +1704,7 @@ def verify_shopify_webhook_hmac(raw_body: bytes, hmac_header: str, secret: str) 
     return match
 
 
-def _resolve_owner_for_integration(integration: Integration):
+def _resolve_owner_for_integration(integration: Integration) -> Any:
     # Webhooks are system-to-system calls. Use warehouse manager if present.
     if integration.warehouse_id and integration.warehouse and integration.warehouse.manager:
         return integration.warehouse.manager
@@ -1969,7 +2049,7 @@ def process_shopify_webhook_event(
 @transaction.atomic
 def import_shopify_orders(
     integration: Integration,
-    owner,
+    owner: Any,
     created_at_min: datetime,
     created_at_max: datetime,
 ) -> dict[str, int]:
@@ -2079,7 +2159,7 @@ def _fetch_shopify_product_metafields(integration: Integration, shopify_product_
         return []
 
 
-def _get_or_create_category_by_name(name: str | None):
+def _get_or_create_category_by_name(name: str | None) -> Category:
     category_name = (name or "Uncategorized").strip() or "Uncategorized"
     category, _ = Category.objects.get_or_create(name=category_name)
     return category
@@ -2188,7 +2268,7 @@ def _parse_bundle_components(
 @transaction.atomic
 def import_shopify_products(
     integration: Integration,
-    owner,
+    owner: Any,
 ) -> dict[str, int]:
     """Dedicated Shopify product sync endpoint service.
 
@@ -2327,7 +2407,7 @@ def import_shopify_products(
     }
 
 
-def auto_sync_order_to_erp(order) -> None:
+def auto_sync_order_to_erp(order: Order) -> None:
     """Automatically push an order to all active auto-sync Odoo/QB integrations
     for its market. Called after order creation (webhook or manual import).
 
@@ -2354,7 +2434,7 @@ def auto_sync_order_to_erp(order) -> None:
             _auto_sync_order_to_quickbooks(order, integration)
 
 
-def _auto_sync_order_to_odoo(order, integration: Integration) -> None:
+def _auto_sync_order_to_odoo(order: Order, integration: Integration) -> None:
     from .models import OrderSyncLog
 
     # Skip if already synced
@@ -2416,7 +2496,7 @@ def _auto_sync_order_to_odoo(order, integration: Integration) -> None:
     order.save(update_fields=['odoo_sync_status', 'odoo_sales_order_id', 'odoo_sales_invoice_id'])
 
 
-def _auto_sync_order_to_quickbooks(order, integration: Integration) -> None:
+def _auto_sync_order_to_quickbooks(order: Order, integration: Integration) -> None:
     from .models import OrderSyncLog
 
     if order.quickbooks_sales_invoice_id:
@@ -2453,7 +2533,7 @@ def _auto_sync_order_to_quickbooks(order, integration: Integration) -> None:
 # Auto-UPDATE ERP records when a Shopify order is updated
 # ---------------------------------------------------------------------------
 
-def auto_update_order_in_erp(order) -> None:
+def auto_update_order_in_erp(order: Order) -> None:
     """Automatically update existing ERP records (Odoo SO/Invoice, QB Invoice)
     when an order is updated via Shopify webhook.
 
@@ -2487,7 +2567,7 @@ def auto_update_order_in_erp(order) -> None:
             _auto_update_order_in_quickbooks(order, integration)
 
 
-def _auto_update_order_in_odoo(order, integration: Integration) -> None:
+def _auto_update_order_in_odoo(order: Order, integration: Integration) -> None:
     from .models import OrderSyncLog
 
     order.odoo_sync_status = order.SYNC_PENDING
@@ -2549,7 +2629,7 @@ def _auto_update_order_in_odoo(order, integration: Integration) -> None:
     order.save(update_fields=['odoo_sync_status'])
 
 
-def _auto_update_order_in_quickbooks(order, integration: Integration) -> None:
+def _auto_update_order_in_quickbooks(order: Order, integration: Integration) -> None:
     from .models import OrderSyncLog
 
     if not order.quickbooks_sales_invoice_id:

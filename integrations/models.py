@@ -124,6 +124,12 @@ class OdooCredentials(models.Model):
         default='',
         help_text='Odoo product.product ID to use when no SKU match is found',
     )
+    discount_product_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text='Odoo product.product ID to use for discount lines',
+    )
 
     def __str__(self):
         return f'Odoo creds for {self.integration}'
@@ -190,6 +196,13 @@ class QuickBooksCredentials(models.Model):
         default='',
         help_text='QuickBooks Item ID to use when no SKU match is found',
     )
+    discount_product_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text='QuickBooks Item ID to use for discount lines',
+    )
+
     environment = models.CharField(
         max_length=20,
         choices=Environment.choices,
