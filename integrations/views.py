@@ -21,11 +21,11 @@ from authentication.permissions import IsAdminOrOwner, IsManagerOrAbove
 
 logger = logging.getLogger(__name__)
 
-from .models import Integration, OrderSyncLog
+from .models import Integration, OrderSyncLog, ProductIntegrationMapping
 from .serializers import (
     IntegrationSerializer,
-
     OrderSyncLogSerializer,
+    ProductIntegrationMappingSerializer,
 )
 from integrations.services import (
     INTUIT_TOKEN_URL,
@@ -557,3 +557,41 @@ class OrderSyncLogViewSet(viewsets.ReadOnlyModelViewSet):
     filterset_fields = ['order', 'integration', 'target', 'status']
     search_fields = ['order__order_number', 'integration__name', 'error_message']
     ordering_fields = ['created_at', 'status']
+
+
+class ProductIntegrationMappingViewSet(viewsets.ModelViewSet):
+    """
+    Manage Product to target external SKU mappings.
+    The `upsert` action provides a convenient way for frontends to save grid cells.
+    """
+
+    queryset = ProductIntegrationMapping.objects.select_related(
+        'product', 'integration__market'
+    ).all()
+    serializer_class = ProductIntegrationMappingSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['product', 'integration', 'integration__type', 'integration__market']
+    search_fields = ['product__sku', 'product__name', 'external_sku']
+
+    @action(detail=False, methods=['post'], url_path='upsert')
+    def upsert(self, request):
+        product_id = request.data.get('product')
+        integration_id = request.data.get('integration')
+        external_sku = request.data.get('external_sku', '').strip()
+
+        if not product_id or not integration_id:
+            return Response(
+                {"detail": "Both product and integration fields are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        mapping, created = ProductIntegrationMapping.objects.update_or_create(
+            product_id=product_id,
+            integration_id=integration_id,
+            defaults={'external_sku': external_sku},
+        )
+        return Response(
+            self.get_serializer(mapping).data,
+            status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED,
+        )

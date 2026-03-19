@@ -309,3 +309,36 @@ class OrderSyncLog(models.Model):
 
     def __str__(self):
         return f'{self.get_target_display()} → {self.order} ({self.status})'
+
+class ProductIntegrationMapping(models.Model):
+    """Maps an internal product to an external system's SKU."""
+    product = models.ForeignKey(
+        'products.Product',
+        on_delete=models.CASCADE,
+        related_name='integration_mappings',
+    )
+    integration = models.ForeignKey(
+        Integration,
+        on_delete=models.CASCADE,
+        related_name='product_mappings',
+    )
+    external_sku = models.CharField(
+        max_length=255,
+        help_text='The SKU or ID used by the external system to identify the product',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['product', 'integration'],
+                name='unique_product_integration_mapping'
+            )
+        ]
+        indexes = [
+            models.Index(fields=['product', 'integration']),
+        ]
+
+    def __str__(self):
+        return f'{self.product.sku} -> {self.external_sku} ({self.integration})'

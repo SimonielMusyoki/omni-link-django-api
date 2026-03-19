@@ -9,6 +9,7 @@ from .models import (
     OdooCredentials,
     QuickBooksCredentials,
     OrderSyncLog,
+    ProductIntegrationMapping,
 )
 
 
@@ -338,3 +339,19 @@ class OrderSyncLogSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = fields
+
+class ProductIntegrationMappingSerializer(serializers.ModelSerializer):
+    product_sku = serializers.CharField(source='product.sku', read_only=True)
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    integration_name = serializers.CharField(source='integration.name', read_only=True)
+    integration_type = serializers.CharField(source='integration.type', read_only=True)
+    market_name = serializers.CharField(source='integration.market.name', read_only=True)
+
+    class Meta:
+        model = ProductIntegrationMapping
+        fields = [
+            'id', 'product', 'product_sku', 'product_name',
+            'integration', 'integration_name', 'integration_type', 'market_name',
+            'external_sku', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']

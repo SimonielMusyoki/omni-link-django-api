@@ -745,7 +745,7 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
         # Apply tax if configured
         if creds.tax_id:
             try:
-                line_vals['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+                line_vals['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
 
@@ -761,7 +761,7 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
         }
         if creds.tax_id:
             try:
-                shipping_line['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+                shipping_line['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
         order_lines.append((0, 0, shipping_line))
@@ -894,7 +894,7 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
 
         if creds.tax_id:
             try:
-                line_vals['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+                line_vals['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
 
@@ -910,7 +910,7 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
         }
         if creds.tax_id:
             try:
-                shipping_line['tax_id'] = [(6, 0, [int(creds.tax_id)])]
+                shipping_line['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
         order_lines.append((0, 0, shipping_line))
@@ -1068,18 +1068,26 @@ def _resolve_qb_item_ref(
     item_name: str,
     sku_map: dict[str, str],
     default_product_id: str,
+    mapped_sku: str | None = None,
 ) -> dict[str, str] | None:
     """Return the QB ItemRef dict for a line item.
 
     Lookup order:
-    1. Case-insensitive match of the order SKU against the QB items map
+    1. If `mapped_sku` is provided, use it to match against the QB items map.
+    2. Case-insensitive match of the order SKU against the QB items map
        (which prefers the QBO item's ``Sku`` field over its display name)
        → {'value': id}
-    2. Case-insensitive match of the order product name against the QB items map
+    3. Case-insensitive match of the order product name against the QB items map
        → {'value': id}
-    3. Configured default product → {'value': default_product_id}
-    4. No match and no default   → None (QB will omit ItemRef)
+    4. Configured default product → {'value': default_product_id}
+    5. No match and no default   → None (QB will omit ItemRef)
     """
+    if mapped_sku:
+        item_id = sku_map.get(mapped_sku.lower())
+        if item_id:
+            return {'value': item_id}
+        logger.warning('QB Mapped SKU "%s" not found in items list', mapped_sku)
+
     if item_sku:
         item_id = sku_map.get(item_sku.lower())
         if item_id:
@@ -1124,11 +1132,23 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
             },
         }
 
+        # Try to find a specific mapping for this product/integration
+        mapped_sku = None
+        if item.product_id:
+            from .models import ProductIntegrationMapping
+            mapping = ProductIntegrationMapping.objects.filter(
+                product_id=item.product_id,
+                integration_id=integration.id
+            ).first()
+            if mapping:
+                mapped_sku = mapping.external_sku
+
         item_ref = _resolve_qb_item_ref(
             (item.sku or '').strip(),
             (item.product_name or '').strip(),
             sku_map,
             str(creds.default_product_id or ''),
+            mapped_sku=mapped_sku,
         )
         if item_ref:
             line['SalesItemLineDetail']['ItemRef'] = item_ref
@@ -1243,11 +1263,23 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
             },
         }
 
+        # Try to find a specific mapping for this product/integration
+        mapped_sku = None
+        if item.product_id:
+            from .models import ProductIntegrationMapping
+            mapping = ProductIntegrationMapping.objects.filter(
+                product_id=item.product_id,
+                integration_id=integration.id
+            ).first()
+            if mapping:
+                mapped_sku = mapping.external_sku
+
         item_ref = _resolve_qb_item_ref(
             (item.sku or '').strip(),
             (item.product_name or '').strip(),
             sku_map,
             str(creds.default_product_id or ''),
+            mapped_sku=mapped_sku,
         )
         if item_ref:
             line['SalesItemLineDetail']['ItemRef'] = item_ref

@@ -470,6 +470,7 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             default_product_id = 'QB-PROD-001'
 
         class IntegrationStub:
+            id = 1
             quickbooks_credentials = QuickBooksCreds()
 
         class ItemStub:
@@ -542,6 +543,7 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             default_product_id = 'QB-PROD-001'
 
         class IntegrationStub:
+            id = 1
             quickbooks_credentials = QuickBooksCreds()
 
         class ItemStub:
