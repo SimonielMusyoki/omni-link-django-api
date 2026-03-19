@@ -566,7 +566,7 @@ class ProductIntegrationMappingViewSet(viewsets.ModelViewSet):
     """
 
     queryset = ProductIntegrationMapping.objects.select_related(
-        'product', 'integration__market'
+        'product', 'integration'
     ).all()
     serializer_class = ProductIntegrationMappingSerializer
     permission_classes = [IsAuthenticated]
