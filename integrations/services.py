@@ -648,12 +648,20 @@ def _resolve_odoo_product_by_sku(
         return sku_cache[sku]
 
     try:
+        domain: list[list[Any] | str] = [['default_code', '=', sku]]
+        if creds.company_id:
+            try:
+                comp_id = int(creds.company_id)
+                domain.extend(['|', ['company_id', '=', False], ['company_id', '=', comp_id]])
+            except (ValueError, TypeError):
+                pass
+
         matches = cast(
             list[int],
             _odoo_execute(
                 models_proxy, creds.database_url, uid, creds.api_key,
                 'product.product', 'search',
-                [[['default_code', '=', sku]]],
+                [domain],
                 {'limit': 1},
             ),
         )
@@ -737,7 +745,7 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
         # Apply tax if configured
         if creds.tax_id:
             try:
-                line_vals['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
+                line_vals['tax_id'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
 
@@ -753,13 +761,14 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
         }
         if creds.tax_id:
             try:
-                shipping_line['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
+                shipping_line['tax_id'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
         order_lines.append((0, 0, shipping_line))
 
     so_vals: dict[str, Any] = {
         'partner_id': partner_id,
+        'name': order.shopify_order_number,
         'client_order_ref': order.order_number,
         'order_line': order_lines,
     }
@@ -832,6 +841,7 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
         'move_type': 'out_invoice',
         'partner_id': partner_id,
         'ref': order.order_number,
+        'invoice_origin': order.shopify_order_number,
         'invoice_line_ids': invoice_lines,
     }
     _apply_company_id(move_vals, creds)
@@ -843,6 +853,13 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
             'account.move', 'create', [move_vals],
         ),
     )
+
+    # Auto confirm the Sales Invoice
+    _odoo_execute(
+        models_proxy, creds.database_url, uid, creds.api_key,
+        'account.move', 'action_post', [[odoo_invoice_id]],
+    )
+
     return odoo_invoice_id
 
 
@@ -877,7 +894,7 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
 
         if creds.tax_id:
             try:
-                line_vals['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
+                line_vals['tax_id'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
 
@@ -893,13 +910,14 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
         }
         if creds.tax_id:
             try:
-                shipping_line['tax_ids'] = [(6, 0, [int(creds.tax_id)])]
+                shipping_line['tax_id'] = [(6, 0, [int(creds.tax_id)])]
             except (ValueError, TypeError):
                 pass
         order_lines.append((0, 0, shipping_line))
 
     update_vals: dict[str, Any] = {
         'partner_id': partner_id,
+        'name': order.shopify_order_number,
         'client_order_ref': order.order_number,
         # (5, 0, 0) = unlink all existing lines, then (0, 0, {...}) = create new
         'order_line': [(5, 0, 0)] + order_lines,
@@ -1046,7 +1064,8 @@ def _fetch_qb_sku_map(creds: 'QuickBooksCredentials') -> dict[str, str]:
 
 
 def _resolve_qb_item_ref(
-    sku: str,
+    item_sku: str,
+    item_name: str,
     sku_map: dict[str, str],
     default_product_id: str,
 ) -> dict[str, str] | None:
@@ -1055,15 +1074,23 @@ def _resolve_qb_item_ref(
     Lookup order:
     1. Case-insensitive match of the order SKU against the QB items map
        (which prefers the QBO item's ``Sku`` field over its display name)
-       → {'value': id, 'name': sku}
-    2. Configured default product → {'value': default_product_id}
-    3. No match and no default   → None (QB will omit ItemRef)
+       → {'value': id}
+    2. Case-insensitive match of the order product name against the QB items map
+       → {'value': id}
+    3. Configured default product → {'value': default_product_id}
+    4. No match and no default   → None (QB will omit ItemRef)
     """
-    if sku:
-        item_id = sku_map.get(sku.lower())
+    if item_sku:
+        item_id = sku_map.get(item_sku.lower())
         if item_id:
-            return {'value': item_id, 'name': sku}
-        logger.warning('QB SKU "%s" not found in items list — falling back to default', sku)
+            return {'value': item_id}
+        logger.warning('QB SKU "%s" not found in items list — falling back to name/default', item_sku)
+        
+    if item_name:
+        item_id = sku_map.get(item_name.lower())
+        if item_id:
+            return {'value': item_id}
+            
     if default_product_id:
         return {'value': default_product_id}
     return None
@@ -1098,7 +1125,8 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
         }
 
         item_ref = _resolve_qb_item_ref(
-            item.sku or '',
+            (item.sku or '').strip(),
+            (item.product_name or '').strip(),
             sku_map,
             str(creds.default_product_id or ''),
         )
@@ -1216,7 +1244,8 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
         }
 
         item_ref = _resolve_qb_item_ref(
-            item.sku or '',
+            (item.sku or '').strip(),
+            (item.product_name or '').strip(),
             sku_map,
             str(creds.default_product_id or ''),
         )

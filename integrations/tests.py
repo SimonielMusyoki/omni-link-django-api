@@ -516,8 +516,8 @@ class QuickBooksInvoiceCreationTests(APITestCase):
         # DocNumber derived from shopify_order_number ('#1001') with '#' stripped, no prefix
         self.assertEqual(kwargs['json']['DocNumber'], '1001')
         self.assertEqual(
-            kwargs['json']['Line'][0]['SalesItemLineDetail']['ItemRef']['name'],
-            'SKU-501',
+            kwargs['json']['Line'][0]['SalesItemLineDetail']['ItemRef']['value'],
+            'QB-ITEM-1',
         )
 
     @patch('integrations.services.requests.request')
@@ -652,28 +652,34 @@ class FetchQbSkuMapTests(APITestCase):
 class ResolveQbItemRefTests(APITestCase):
     """Unit tests for _resolve_qb_item_ref."""
 
-    def test_exact_sku_match_returns_value_and_name(self):
+    def test_exact_sku_match_returns_value(self):
         sku_map = {'sku-501': 'QB-ITEM-1', 'aloe gel': 'QB-ITEM-1'}
-        ref = _resolve_qb_item_ref('SKU-501', sku_map, 'DEFAULT-ID')
-        self.assertEqual(ref, {'value': 'QB-ITEM-1', 'name': 'SKU-501'})
+        ref = _resolve_qb_item_ref('SKU-501', 'Aloe Gel', sku_map, 'DEFAULT-ID')
+        self.assertEqual(ref, {'value': 'QB-ITEM-1'})
 
     def test_case_insensitive_match(self):
         sku_map = {'sku-501': 'QB-ITEM-1'}
-        ref = _resolve_qb_item_ref('sku-501', sku_map, 'DEFAULT-ID')
+        ref = _resolve_qb_item_ref('sku-501', '', sku_map, 'DEFAULT-ID')
         self.assertIsNotNone(ref)
-        assert ref is not None
+        self.assertEqual(ref['value'], 'QB-ITEM-1')
+
+    def test_fallback_to_name(self):
+        sku_map = {'aloe gel': 'QB-ITEM-1'}
+        # SKU is missing from the map, but name is present
+        ref = _resolve_qb_item_ref('SKU-UNKNOWN', 'Aloe Gel', sku_map, 'DEFAULT-ID')
+        self.assertIsNotNone(ref)
         self.assertEqual(ref['value'], 'QB-ITEM-1')
 
     def test_missing_sku_falls_back_to_default(self):
-        ref = _resolve_qb_item_ref('SKU-UNKNOWN', {}, 'DEFAULT-ID')
+        ref = _resolve_qb_item_ref('SKU-UNKNOWN', 'Unknown', {}, 'DEFAULT-ID')
         self.assertEqual(ref, {'value': 'DEFAULT-ID'})
 
     def test_no_sku_no_default_returns_none(self):
-        ref = _resolve_qb_item_ref('', {}, '')
+        ref = _resolve_qb_item_ref('', '', {}, '')
         self.assertIsNone(ref)
 
     def test_no_match_no_default_returns_none(self):
-        ref = _resolve_qb_item_ref('SKU-MISSING', {'other-sku': '5'}, '')
+        ref = _resolve_qb_item_ref('SKU-MISSING', 'Product', {'other-sku': '5'}, '')
         self.assertIsNone(ref)
 
 
