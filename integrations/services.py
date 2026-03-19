@@ -1083,10 +1083,10 @@ def _resolve_qb_item_ref(
     5. No match and no default   → None (QB will omit ItemRef)
     """
     if mapped_sku:
-        item_id = sku_map.get(mapped_sku.lower())
-        if item_id:
-            return {'value': item_id}
-        logger.warning('QB Mapped SKU "%s" not found in items list', mapped_sku)
+        # mapped_sku is the QBO Item ID (from external_sku in ProductIntegrationMapping)
+        if mapped_sku in sku_map.values():
+            return {'value': mapped_sku}
+        logger.warning('QB Mapped Item ID "%s" not found in active items', mapped_sku)
 
     if item_sku:
         item_id = sku_map.get(item_sku.lower())
