@@ -1172,17 +1172,8 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
     endpoint = f'{creds.api_base_url}/v3/company/{creds.realm_id}/invoice?minorversion=75'
 
     lines: list[dict[str, Any]] = []
-    for item in order.items.all():
+    for item in order.items.select_related('product').all():
         amount = float(item.total_price)
-        line: dict[str, Any] = {
-            'DetailType': 'SalesItemLineDetail',
-            'Amount': amount,
-            'Description': item.product_name,
-            'SalesItemLineDetail': {
-                'Qty': float(item.quantity),
-                'UnitPrice': float(item.unit_price),
-            },
-        }
 
         # Try to find a specific mapping for this product/integration
         mapped_sku = None
@@ -1202,12 +1193,33 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
             str(creds.default_product_id or ''),
             mapped_sku=mapped_sku,
         )
-        if item_ref:
-            line['SalesItemLineDetail']['ItemRef'] = item_ref
 
-        # Tax code
-        if creds.tax_id:
-            line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
+        is_bundle = bool(item.product_id and item.product and item.product.is_bundle)
+
+        if is_bundle and item_ref:
+            # QB Group items must use GroupLineDetail — Amount and TaxCodeRef are
+            # computed by QB from the group definition and must not be sent.
+            line = {
+                'DetailType': 'GroupLineDetail',
+                'GroupLineDetail': {
+                    'GroupItemRef': item_ref,
+                    'Quantity': float(item.quantity),
+                },
+            }
+        else:
+            line = {
+                'DetailType': 'SalesItemLineDetail',
+                'Amount': amount,
+                'Description': item.product_name,
+                'SalesItemLineDetail': {
+                    'Qty': float(item.quantity),
+                    'UnitPrice': float(item.unit_price),
+                },
+            }
+            if item_ref:
+                line['SalesItemLineDetail']['ItemRef'] = item_ref
+            if creds.tax_id:
+                line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
 
         lines.append(line)
 
@@ -1317,17 +1329,8 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
     sku_map = _fetch_qb_sku_map(creds)
 
     lines: list[dict[str, Any]] = []
-    for item in order.items.all():
+    for item in order.items.select_related('product').all():
         amount = float(item.total_price)
-        line: dict[str, Any] = {
-            'DetailType': 'SalesItemLineDetail',
-            'Amount': amount,
-            'Description': item.product_name,
-            'SalesItemLineDetail': {
-                'Qty': float(item.quantity),
-                'UnitPrice': float(item.unit_price),
-            },
-        }
 
         # Try to find a specific mapping for this product/integration
         mapped_sku = None
@@ -1347,11 +1350,31 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
             str(creds.default_product_id or ''),
             mapped_sku=mapped_sku,
         )
-        if item_ref:
-            line['SalesItemLineDetail']['ItemRef'] = item_ref
 
-        if creds.tax_id:
-            line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
+        is_bundle = bool(item.product_id and item.product and item.product.is_bundle)
+
+        if is_bundle and item_ref:
+            line: dict[str, Any] = {
+                'DetailType': 'GroupLineDetail',
+                'GroupLineDetail': {
+                    'GroupItemRef': item_ref,
+                    'Quantity': float(item.quantity),
+                },
+            }
+        else:
+            line = {
+                'DetailType': 'SalesItemLineDetail',
+                'Amount': amount,
+                'Description': item.product_name,
+                'SalesItemLineDetail': {
+                    'Qty': float(item.quantity),
+                    'UnitPrice': float(item.unit_price),
+                },
+            }
+            if item_ref:
+                line['SalesItemLineDetail']['ItemRef'] = item_ref
+            if creds.tax_id:
+                line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
 
         lines.append(line)
 
@@ -2437,8 +2460,11 @@ def auto_sync_order_to_erp(order: Order) -> None:
 def _auto_sync_order_to_odoo(order: Order, integration: Integration) -> None:
     from .models import OrderSyncLog
 
-    # Skip if already synced
+    # Skip if already synced; correct status if IDs exist but status is stale
     if order.odoo_sales_order_id and order.odoo_sales_invoice_id:
+        if order.odoo_sync_status != order.SYNC_SUCCESS:
+            order.odoo_sync_status = order.SYNC_SUCCESS
+            order.save(update_fields=['odoo_sync_status'])
         return
 
     order.odoo_sync_status = order.SYNC_PENDING

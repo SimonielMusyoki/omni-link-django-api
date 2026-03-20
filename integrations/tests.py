@@ -483,6 +483,10 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             sku = 'SKU-501'
 
         class ItemManagerStub:
+            @classmethod
+            def select_related(cls, *_args):
+                return cls
+
             @staticmethod
             def all():
                 return [ItemStub()]
@@ -557,6 +561,10 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             sku = 'SKU-501'
 
         class ItemManagerStub:
+            @classmethod
+            def select_related(cls, *_args):
+                return cls
+
             @staticmethod
             def all():
                 return [ItemStub()]
