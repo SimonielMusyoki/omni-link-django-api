@@ -630,13 +630,14 @@ class FetchQbSkuMapTests(APITestCase):
             status_code=200,
             json=lambda: {
                 'QueryResponse': {
-                    'Item': [{'Id': '42', 'Name': 'Aloe Gel', 'Sku': 'SKU-501'}]
+                    'Item': [{'Id': '42', 'Name': 'Aloe Gel', 'Sku': 'SKU-501', 'Type': 'Inventory'}]
                 }
             },
         )
-        result = _fetch_qb_sku_map(self._make_creds())
-        self.assertEqual(result['sku-501'], '42')   # matched via Sku field
-        self.assertEqual(result['aloe gel'], '42')  # Name still present as fallback
+        sku_map, group_ids = _fetch_qb_sku_map(self._make_creds())
+        self.assertEqual(sku_map['sku-501'], '42')   # matched via Sku field
+        self.assertEqual(sku_map['aloe gel'], '42')  # Name still present as fallback
+        self.assertNotIn('42', group_ids)
 
     @patch('integrations.services.requests.request')
     @patch('integrations.services._ensure_quickbooks_token', return_value='tok')
@@ -646,19 +647,40 @@ class FetchQbSkuMapTests(APITestCase):
             status_code=200,
             json=lambda: {
                 'QueryResponse': {
-                    'Item': [{'Id': '99', 'Name': 'SKU-999'}]
+                    'Item': [{'Id': '99', 'Name': 'SKU-999', 'Type': 'Service'}]
                 }
             },
         )
-        result = _fetch_qb_sku_map(self._make_creds())
-        self.assertEqual(result['sku-999'], '99')
+        sku_map, _ = _fetch_qb_sku_map(self._make_creds())
+        self.assertEqual(sku_map['sku-999'], '99')
+
+    @patch('integrations.services.requests.request')
+    @patch('integrations.services._ensure_quickbooks_token', return_value='tok')
+    def test_group_type_added_to_group_ids(self, _, req_mock):
+        """Items with Type=Group are included in the returned group_item_ids set."""
+        req_mock.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                'QueryResponse': {
+                    'Item': [
+                        {'Id': '26', 'Name': 'Starter Bundle', 'Sku': 'BUNDLE-001', 'Type': 'Group'},
+                        {'Id': '27', 'Name': 'Widget', 'Sku': 'SKU-001', 'Type': 'Inventory'},
+                    ]
+                }
+            },
+        )
+        sku_map, group_ids = _fetch_qb_sku_map(self._make_creds())
+        self.assertIn('26', group_ids)
+        self.assertNotIn('27', group_ids)
+        self.assertEqual(sku_map['bundle-001'], '26')
 
     @patch('integrations.services.requests.request')
     @patch('integrations.services._ensure_quickbooks_token', return_value='tok')
     def test_non_200_returns_empty_map(self, _, req_mock):
         req_mock.return_value = MagicMock(status_code=503)
-        result = _fetch_qb_sku_map(self._make_creds())
-        self.assertEqual(result, {})
+        sku_map, group_ids = _fetch_qb_sku_map(self._make_creds())
+        self.assertEqual(sku_map, {})
+        self.assertEqual(group_ids, frozenset())
 
 
 class ResolveQbItemRefTests(APITestCase):

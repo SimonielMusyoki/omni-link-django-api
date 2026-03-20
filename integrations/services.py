@@ -1074,20 +1074,20 @@ def _resolve_configured_quickbooks_customer_id(
     return selected_customer
 
 
-def _fetch_qb_sku_map(creds: 'QuickBooksCredentials') -> dict[str, str]:
-    """Return a lowercase-key → QB-item-id mapping for all active QB items.
+def _fetch_qb_sku_map(
+    creds: 'QuickBooksCredentials',
+) -> tuple[dict[str, str], frozenset[str]]:
+    """Return ``(sku_map, group_item_ids)`` for all active QB items.
 
-    Each item contributes up to two entries:
-    - Its ``Name`` (display name) as a fallback key.
-    - Its ``Sku`` field as the preferred key (overrides the Name entry when
-      both are present, so order-line SKUs resolve against the dedicated QBO
-      SKU field first).
+    ``sku_map`` maps lowercase Name/Sku keys to QB item IDs (Sku takes
+    priority over Name when both are present).
 
-    This lets the SKU on an order line match the ``Sku`` attribute stored on
-    the QBO item rather than requiring the item's display name to equal the SKU.
+    ``group_item_ids`` is the set of QB item IDs whose ``Type`` is ``"Group"``
+    (i.e. QB bundle/group items).  These must be sent as ``GroupLineDetail``
+    lines in invoices rather than ``SalesItemLineDetail``.
     """
     from urllib.parse import quote as _quote
-    query = _quote('SELECT Id, Name, Sku FROM Item WHERE Active = true MAXRESULTS 1000')
+    query = _quote('SELECT Id, Name, Sku, Type FROM Item WHERE Active = true MAXRESULTS 1000')
     url = (
         f'{creds.api_base_url}/v3/company/{creds.realm_id}'
         f'/query?query={query}&minorversion=75'
@@ -1095,9 +1095,10 @@ def _fetch_qb_sku_map(creds: 'QuickBooksCredentials') -> dict[str, str]:
     resp = _quickbooks_request('GET', url, creds)
     if resp.status_code != 200:
         logger.warning('QB item map fetch returned %d — SKU lookup disabled', resp.status_code)
-        return {}
+        return {}, frozenset()
     items = resp.json().get('QueryResponse', {}).get('Item', [])
     sku_map: dict[str, str] = {}
+    group_ids: set[str] = set()
     for i in items:
         item_id = str(i.get('Id', ''))
         if not item_id:
@@ -1108,7 +1109,9 @@ def _fetch_qb_sku_map(creds: 'QuickBooksCredentials') -> dict[str, str]:
             sku_map[name] = item_id   # display-name fallback
         if sku:
             sku_map[sku] = item_id    # Sku field takes priority
-    return sku_map
+        if str(i.get('Type', '')).lower() == 'group':
+            group_ids.add(item_id)
+    return sku_map, frozenset(group_ids)
 
 
 def _resolve_qb_item_ref(
@@ -1166,8 +1169,9 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
 
     customer_id = _resolve_configured_quickbooks_customer_id(creds, order)
 
-    # Fetch QB items once up-front so we can resolve SKUs to stable item IDs.
-    sku_map = _fetch_qb_sku_map(creds)
+    # Fetch QB items once up-front so we can resolve SKUs to stable item IDs
+    # and identify which items are QB Group (bundle) types.
+    sku_map, group_item_ids = _fetch_qb_sku_map(creds)
 
     endpoint = f'{creds.api_base_url}/v3/company/{creds.realm_id}/invoice?minorversion=75'
 
@@ -1194,7 +1198,13 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
             mapped_sku=mapped_sku,
         )
 
-        is_bundle = bool(item.product_id and item.product and item.product.is_bundle)
+        # Use GroupLineDetail when the resolved QB item is a Group type, or when
+        # the local product is explicitly marked as a bundle.
+        resolved_id = item_ref.get('value', '') if item_ref else ''
+        is_bundle = (
+            (bool(resolved_id) and resolved_id in group_item_ids)
+            or bool(item.product_id and item.product and item.product.is_bundle)
+        )
 
         if is_bundle and item_ref:
             # QB Group items must use GroupLineDetail — Amount and TaxCodeRef are
@@ -1326,7 +1336,7 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
     sync_token = str(existing_invoice.get('SyncToken') or '0')
 
     # 2. Build updated line items
-    sku_map = _fetch_qb_sku_map(creds)
+    sku_map, group_item_ids = _fetch_qb_sku_map(creds)
 
     lines: list[dict[str, Any]] = []
     for item in order.items.select_related('product').all():
@@ -1351,7 +1361,11 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
             mapped_sku=mapped_sku,
         )
 
-        is_bundle = bool(item.product_id and item.product and item.product.is_bundle)
+        resolved_id = item_ref.get('value', '') if item_ref else ''
+        is_bundle = (
+            (bool(resolved_id) and resolved_id in group_item_ids)
+            or bool(item.product_id and item.product and item.product.is_bundle)
+        )
 
         if is_bundle and item_ref:
             line: dict[str, Any] = {
