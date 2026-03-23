@@ -726,11 +726,18 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
 
     sku_cache: dict[str, int | None] = {}
     order_lines: list[tuple[int, int, dict[str, Any]]] = []
+    
+    discount_amount = float(order.discount_amount or 0)
+    subtotal_price = float(order.subtotal_price or order.total_price or 0)
+    discount_multiplier = 1.0
+    if discount_amount > 0 and subtotal_price > 0:
+        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
+
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'product_uom_qty': float(item.quantity),
-            'price_unit': float(item.unit_price),
+            'price_unit': float(item.unit_price) * discount_multiplier,
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -751,15 +758,7 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
 
         order_lines.append((0, 0, line_vals))
 
-    # Discount line item (negative price)
-    discount_amount = float(order.discount_amount or 0)
-    if discount_amount > 0:
-        discount_line: dict[str, Any] = {
-            'name': 'Discount',
-            'product_uom_qty': 1,
-            'price_unit': -discount_amount,
-        }
-        order_lines.append((0, 0, discount_line))
+
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -803,11 +802,18 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
 
     sku_cache: dict[str, int | None] = {}
     invoice_lines: list[tuple[int, int, dict[str, Any]]] = []
+    
+    discount_amount = float(order.discount_amount or 0)
+    subtotal_price = float(order.subtotal_price or order.total_price or 0)
+    discount_multiplier = 1.0
+    if discount_amount > 0 and subtotal_price > 0:
+        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
+
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'quantity': float(item.quantity),
-            'price_unit': float(item.unit_price),
+            'price_unit': float(item.unit_price) * discount_multiplier,
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -828,19 +834,7 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
 
         invoice_lines.append((0, 0, line_vals))
     
-    # Discount line item (negative price)
-    discount_amount = float(order.discount_amount or 0)
-    if discount_amount > 0:
-        discount_line: dict[str, Any] = {
-            'name': 'Discount',
-            'quantity': 1,
-            'price_unit': -discount_amount,
-        }
-        try:
-            discount_line['product_id'] = int(creds.discount_product_id)
-        except (ValueError, TypeError):
-            pass
-        invoice_lines.append((0, 0, discount_line))
+
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -900,11 +894,18 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
 
     sku_cache: dict[str, int | None] = {}
     order_lines: list[tuple[int, int, dict[str, Any]]] = []
+    
+    discount_amount = float(order.discount_amount or 0)
+    subtotal_price = float(order.subtotal_price or order.total_price or 0)
+    discount_multiplier = 1.0
+    if discount_amount > 0 and subtotal_price > 0:
+        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
+
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'product_uom_qty': float(item.quantity),
-            'price_unit': float(item.unit_price),
+            'price_unit': float(item.unit_price) * discount_multiplier,
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -924,15 +925,7 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
 
         order_lines.append((0, 0, line_vals))
     
-    # Discount line item (negative price)
-    discount_amount = float(order.discount_amount or 0)
-    if discount_amount > 0:
-        discount_line: dict[str, Any] = {
-            'name': 'Discount',
-            'product_uom_qty': 1,
-            'price_unit': -discount_amount,
-        }
-        order_lines.append((0, 0, discount_line))
+
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -978,11 +971,18 @@ def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
 
     sku_cache: dict[str, int | None] = {}
     invoice_lines: list[tuple[int, int, dict[str, Any]]] = []
+    
+    discount_amount = float(order.discount_amount or 0)
+    subtotal_price = float(order.subtotal_price or order.total_price or 0)
+    discount_multiplier = 1.0
+    if discount_amount > 0 and subtotal_price > 0:
+        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
+
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'quantity': float(item.quantity),
-            'price_unit': float(item.unit_price),
+            'price_unit': float(item.unit_price) * discount_multiplier,
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -1002,19 +1002,7 @@ def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
 
         invoice_lines.append((0, 0, line_vals))
     
-    # Discount line item (negative price)
-    discount_amount = float(order.discount_amount or 0)
-    if discount_amount > 0:
-        discount_line: dict[str, Any] = {
-            'name': 'Discount',
-            'quantity': 1,
-            'price_unit': -discount_amount,
-        }
-        try:
-            discount_line['product_id'] = int(creds.discount_product_id)
-        except (ValueError, TypeError):
-            pass
-        invoice_lines.append((0, 0, discount_line))
+
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -1176,8 +1164,15 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
     endpoint = f'{creds.api_base_url}/v3/company/{creds.realm_id}/invoice?minorversion=75'
 
     lines: list[dict[str, Any]] = []
+    
+    discount_amount = float(order.discount_amount or 0)
+    subtotal_price = float(order.subtotal_price or order.total_price or 0)
+    discount_multiplier = 1.0
+    if discount_amount > 0 and subtotal_price > 0:
+        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
+
     for item in order.items.select_related('product').all():
-        amount = float(item.total_price)
+        amount = float(item.total_price) * discount_multiplier
 
         # Try to find a specific mapping for this product/integration
         mapped_sku = None
@@ -1223,7 +1218,7 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
                 'Description': item.product_name,
                 'SalesItemLineDetail': {
                     'Qty': float(item.quantity),
-                    'UnitPrice': float(item.unit_price),
+                    'UnitPrice': float(item.unit_price) * discount_multiplier,
                 },
             }
             if item_ref:
@@ -1233,19 +1228,7 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
 
         lines.append(line)
 
-    # Discount line item (negative amount) if order-level discount exists
-    discount_amount = float(order.discount_amount or 0)
-    if discount_amount > 0:
-        discount_line = {
-            'DetailType': 'SalesItemLineDetail',
-            'Amount': -discount_amount,
-            'Description': 'Order-level discount',
-            'SalesItemLineDetail': {
-                'Qty': 1,
-                'UnitPrice': -discount_amount,
-            },
-        }
-        lines.append(discount_line)
+
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -1339,8 +1322,15 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
     sku_map, group_item_ids = _fetch_qb_sku_map(creds)
 
     lines: list[dict[str, Any]] = []
+    
+    discount_amount = float(order.discount_amount or 0)
+    subtotal_price = float(order.subtotal_price or order.total_price or 0)
+    discount_multiplier = 1.0
+    if discount_amount > 0 and subtotal_price > 0:
+        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
+
     for item in order.items.select_related('product').all():
-        amount = float(item.total_price)
+        amount = float(item.total_price) * discount_multiplier
 
         # Try to find a specific mapping for this product/integration
         mapped_sku = None
@@ -1382,7 +1372,7 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
                 'Description': item.product_name,
                 'SalesItemLineDetail': {
                     'Qty': float(item.quantity),
-                    'UnitPrice': float(item.unit_price),
+                    'UnitPrice': float(item.unit_price) * discount_multiplier,
                 },
             }
             if item_ref:
@@ -1392,19 +1382,7 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
 
         lines.append(line)
 
-    # Discount line item (negative amount) if order-level discount exists
-    discount_amount = float(order.discount_amount or 0)
-    if discount_amount > 0:
-        discount_line = {
-            'DetailType': 'SalesItemLineDetail',
-            'Amount': -discount_amount,
-            'Description': 'Order Discount',
-            'SalesItemLineDetail': {
-                'Qty': 1,
-                'UnitPrice': -discount_amount,
-            },
-        }
-        lines.append(discount_line)
+
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)

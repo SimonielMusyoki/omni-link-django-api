@@ -500,6 +500,8 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             market_id = None
             shipping_price = 0
             discount_amount = 0
+            subtotal_price = '20.00'
+            total_price = '20.00'
 
         sku_map_response = MagicMock()
         sku_map_response.status_code = 200
@@ -578,6 +580,8 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             market_id = None
             shipping_price = '5.00'
             discount_amount = 0
+            subtotal_price = '30.00'
+            total_price = '35.00'
 
         response = MagicMock()
         response.status_code = 200

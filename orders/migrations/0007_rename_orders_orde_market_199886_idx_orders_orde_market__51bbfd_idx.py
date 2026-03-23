@@ -12,29 +12,29 @@ class Migration(migrations.Migration):
     operations = [
         migrations.SeparateDatabaseAndState(
             database_operations=[
-                migrations.RunSQL(
-                    sql="""
-                    DO $$
-                    BEGIN
-                        IF to_regclass('public.orders_orde_market_199886_idx') IS NOT NULL THEN
-                            ALTER INDEX orders_orde_market_199886_idx RENAME TO orders_orde_market__51bbfd_idx;
-                        ELSIF to_regclass('public.orders_orde_market__51bbfd_idx') IS NULL THEN
-                            CREATE INDEX orders_orde_market__51bbfd_idx ON orders_order (market_id, created_at DESC);
-                        END IF;
-                    END
-                    $$;
-                    """,
-                    reverse_sql="""
-                    DO $$
-                    BEGIN
-                        IF to_regclass('public.orders_orde_market__51bbfd_idx') IS NOT NULL THEN
-                            ALTER INDEX orders_orde_market__51bbfd_idx RENAME TO orders_orde_market_199886_idx;
-                        ELSIF to_regclass('public.orders_orde_market_199886_idx') IS NULL THEN
-                            CREATE INDEX orders_orde_market_199886_idx ON orders_order (market_id, created_at DESC);
-                        END IF;
-                    END
-                    $$;
-                    """,
+                migrations.RunPython(
+                    code=lambda apps, schema_editor: schema_editor.execute("""
+                        DO $$
+                        BEGIN
+                            IF to_regclass('public.orders_orde_market_199886_idx') IS NOT NULL THEN
+                                ALTER INDEX orders_orde_market_199886_idx RENAME TO orders_orde_market__51bbfd_idx;
+                            ELSIF to_regclass('public.orders_orde_market__51bbfd_idx') IS NULL THEN
+                                CREATE INDEX orders_orde_market__51bbfd_idx ON orders_order (market_id, created_at DESC);
+                            END IF;
+                        END
+                        $$;
+                    """) if schema_editor.connection.vendor == 'postgresql' else None,
+                    reverse_code=lambda apps, schema_editor: schema_editor.execute("""
+                        DO $$
+                        BEGIN
+                            IF to_regclass('public.orders_orde_market__51bbfd_idx') IS NOT NULL THEN
+                                ALTER INDEX orders_orde_market__51bbfd_idx RENAME TO orders_orde_market_199886_idx;
+                            ELSIF to_regclass('public.orders_orde_market_199886_idx') IS NULL THEN
+                                CREATE INDEX orders_orde_market_199886_idx ON orders_order (market_id, created_at DESC);
+                            END IF;
+                        END
+                        $$;
+                    """) if schema_editor.connection.vendor == 'postgresql' else None,
                 ),
             ],
             state_operations=[
