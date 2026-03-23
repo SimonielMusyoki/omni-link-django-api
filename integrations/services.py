@@ -727,17 +727,11 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
     sku_cache: dict[str, int | None] = {}
     order_lines: list[tuple[int, int, dict[str, Any]]] = []
     
-    discount_amount = float(order.discount_amount or 0)
-    subtotal_price = float(order.subtotal_price or order.total_price or 0)
-    discount_multiplier = 1.0
-    if discount_amount > 0 and subtotal_price > 0:
-        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
-
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'product_uom_qty': float(item.quantity),
-            'price_unit': float(item.unit_price) * discount_multiplier,
+            'price_unit': float(item.unit_price),
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -803,17 +797,11 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
     sku_cache: dict[str, int | None] = {}
     invoice_lines: list[tuple[int, int, dict[str, Any]]] = []
     
-    discount_amount = float(order.discount_amount or 0)
-    subtotal_price = float(order.subtotal_price or order.total_price or 0)
-    discount_multiplier = 1.0
-    if discount_amount > 0 and subtotal_price > 0:
-        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
-
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'quantity': float(item.quantity),
-            'price_unit': float(item.unit_price) * discount_multiplier,
+            'price_unit': float(item.unit_price),
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -895,17 +883,11 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
     sku_cache: dict[str, int | None] = {}
     order_lines: list[tuple[int, int, dict[str, Any]]] = []
     
-    discount_amount = float(order.discount_amount or 0)
-    subtotal_price = float(order.subtotal_price or order.total_price or 0)
-    discount_multiplier = 1.0
-    if discount_amount > 0 and subtotal_price > 0:
-        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
-
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'product_uom_qty': float(item.quantity),
-            'price_unit': float(item.unit_price) * discount_multiplier,
+            'price_unit': float(item.unit_price),
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -972,17 +954,11 @@ def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
     sku_cache: dict[str, int | None] = {}
     invoice_lines: list[tuple[int, int, dict[str, Any]]] = []
     
-    discount_amount = float(order.discount_amount or 0)
-    subtotal_price = float(order.subtotal_price or order.total_price or 0)
-    discount_multiplier = 1.0
-    if discount_amount > 0 and subtotal_price > 0:
-        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
-
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'quantity': float(item.quantity),
-            'price_unit': float(item.unit_price) * discount_multiplier,
+            'price_unit': float(item.unit_price),
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -1165,14 +1141,8 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
 
     lines: list[dict[str, Any]] = []
     
-    discount_amount = float(order.discount_amount or 0)
-    subtotal_price = float(order.subtotal_price or order.total_price or 0)
-    discount_multiplier = 1.0
-    if discount_amount > 0 and subtotal_price > 0:
-        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
-
     for item in order.items.select_related('product').all():
-        amount = float(item.total_price) * discount_multiplier
+        amount = float(item.total_price)
 
         # Try to find a specific mapping for this product/integration
         mapped_sku = None
@@ -1218,7 +1188,7 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
                 'Description': item.product_name,
                 'SalesItemLineDetail': {
                     'Qty': float(item.quantity),
-                    'UnitPrice': float(item.unit_price) * discount_multiplier,
+                    'UnitPrice': float(item.unit_price),
                 },
             }
             if item_ref:
@@ -1323,14 +1293,8 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
 
     lines: list[dict[str, Any]] = []
     
-    discount_amount = float(order.discount_amount or 0)
-    subtotal_price = float(order.subtotal_price or order.total_price or 0)
-    discount_multiplier = 1.0
-    if discount_amount > 0 and subtotal_price > 0:
-        discount_multiplier = 1.0 - (discount_amount / subtotal_price)
-
     for item in order.items.select_related('product').all():
-        amount = float(item.total_price) * discount_multiplier
+        amount = float(item.total_price)
 
         # Try to find a specific mapping for this product/integration
         mapped_sku = None
@@ -1372,7 +1336,7 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
                 'Description': item.product_name,
                 'SalesItemLineDetail': {
                     'Qty': float(item.quantity),
-                    'UnitPrice': float(item.unit_price) * discount_multiplier,
+                    'UnitPrice': float(item.unit_price),
                 },
             }
             if item_ref:
@@ -1820,7 +1784,10 @@ def _upsert_shopify_order_from_payload(
         sku = str(line.get("sku") or "").strip()
         product = Product.objects.filter(sku=sku).first() if sku else None
         quantity = int(line.get("quantity") or 1)
-        unit_price = _as_decimal(line.get("price"))
+        
+        price_amount = (line.get("price_set") or {}).get("shop_money", {}).get("amount") or line.get("price")
+        discount_amount = (line.get("total_discount_set") or {}).get("shop_money", {}).get("amount") or line.get("total_discount")
+        unit_price = _as_decimal(price_amount) - (_as_decimal(discount_amount) / Decimal(quantity if quantity > 0 else 1))
 
         OrderItem.objects.create(
             order=order,
