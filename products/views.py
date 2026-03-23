@@ -54,7 +54,7 @@ class MarketViewSet(viewsets.ModelViewSet):
     """CRUD for markets."""
     queryset = Market.objects.all()
     serializer_class = MarketSerializer
-    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['is_active']
     search_fields = ['name', 'code']
@@ -95,16 +95,11 @@ class WarehouseViewSet(viewsets.ModelViewSet):
         .annotate(annotated_total_stock=Coalesce(Sum('inventory_items__quantity'), Value(0)))
     )
     serializer_class = WarehouseSerializer
-    permission_classes = [IsAuthenticated, IsManagerOrAbove]
+    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'location']
     ordering_fields = ['name', 'created_at']
     ordering = ['-created_at']
-
-    def get_permissions(self):
-        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
-            return [IsAuthenticated()]
-        return [permission() for permission in self.permission_classes]
 
     def perform_create(self, serializer):
         serializer.save(manager=serializer.validated_data.get('manager', self.request.user))

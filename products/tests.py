@@ -365,11 +365,11 @@ class MarketAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['code'], 'GH')
 
-    def test_manager_cannot_manage_markets(self):
+    def test_manager_can_manage_markets(self):
         Market.objects.create(name='Uganda', code='UG', currency='UGX')
         self.client.force_authenticate(user=self.manager)
         response = self.client.get('/api/markets/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -434,7 +434,7 @@ class WarehouseAPITest(APITestCase, _SetupMixin):
         r = self.client.get('/api/warehouses/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
-    def test_regular_user_cannot_create_warehouse(self):
+    def test_regular_user_can_create_warehouse(self):
         basic_user = User.objects.create_user(
             email='basic-warehouse-write@test.com',
             password='testpass123',
@@ -445,7 +445,7 @@ class WarehouseAPITest(APITestCase, _SetupMixin):
             'name': 'Warehouse C', 'location': 'CHI',
             'address': '300 Elm St', 'capacity': 1000,
         })
-        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
 
     # -- custom actions ----
 
