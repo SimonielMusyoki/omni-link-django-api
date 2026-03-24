@@ -336,6 +336,7 @@ class OrderSyncLogSerializer(serializers.ModelSerializer):
             'integration', 'integration_name',
             'target', 'target_display',
             'status', 'external_id', 'error_message',
+            'request_payload',
             'created_at',
         ]
         read_only_fields = fields

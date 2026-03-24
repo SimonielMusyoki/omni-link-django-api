@@ -726,7 +726,6 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
 
     sku_cache: dict[str, int | None] = {}
     order_lines: list[tuple[int, int, dict[str, Any]]] = []
-    
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
@@ -752,7 +751,15 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
 
         order_lines.append((0, 0, line_vals))
 
-
+    # Discount line item (negative price)
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line: dict[str, Any] = {
+            'name': 'Discount',
+            'product_uom_qty': 1,
+            'price_unit': -discount_amount,
+        }
+        order_lines.append((0, 0, discount_line))
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -796,7 +803,6 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
 
     sku_cache: dict[str, int | None] = {}
     invoice_lines: list[tuple[int, int, dict[str, Any]]] = []
-    
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
@@ -822,7 +828,19 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
 
         invoice_lines.append((0, 0, line_vals))
     
-
+    # Discount line item (negative price)
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line: dict[str, Any] = {
+            'name': 'Discount',
+            'quantity': 1,
+            'price_unit': -discount_amount,
+        }
+        try:
+            discount_line['product_id'] = int(creds.discount_product_id)
+        except (ValueError, TypeError):
+            pass
+        invoice_lines.append((0, 0, discount_line))
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -882,7 +900,6 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
 
     sku_cache: dict[str, int | None] = {}
     order_lines: list[tuple[int, int, dict[str, Any]]] = []
-    
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
@@ -907,7 +924,15 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
 
         order_lines.append((0, 0, line_vals))
     
-
+    # Discount line item (negative price)
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line: dict[str, Any] = {
+            'name': 'Discount',
+            'product_uom_qty': 1,
+            'price_unit': -discount_amount,
+        }
+        order_lines.append((0, 0, discount_line))
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -953,7 +978,6 @@ def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
 
     sku_cache: dict[str, int | None] = {}
     invoice_lines: list[tuple[int, int, dict[str, Any]]] = []
-    
     for item in order.items.all():
         line_vals: dict[str, Any] = {
             'name': item.product_name,
@@ -978,7 +1002,19 @@ def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
 
         invoice_lines.append((0, 0, line_vals))
     
-
+    # Discount line item (negative price)
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line: dict[str, Any] = {
+            'name': 'Discount',
+            'quantity': 1,
+            'price_unit': -discount_amount,
+        }
+        try:
+            discount_line['product_id'] = int(creds.discount_product_id)
+        except (ValueError, TypeError):
+            pass
+        invoice_lines.append((0, 0, discount_line))
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -1140,7 +1176,6 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
     endpoint = f'{creds.api_base_url}/v3/company/{creds.realm_id}/invoice?minorversion=75'
 
     lines: list[dict[str, Any]] = []
-    
     for item in order.items.select_related('product').all():
         amount = float(item.total_price)
 
@@ -1197,8 +1232,6 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
                 line['SalesItemLineDetail']['TaxCodeRef'] = {'value': creds.tax_id}
 
         lines.append(line)
-
-
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -1292,7 +1325,6 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
     sku_map, group_item_ids = _fetch_qb_sku_map(creds)
 
     lines: list[dict[str, Any]] = []
-    
     for item in order.items.select_related('product').all():
         amount = float(item.total_price)
 
@@ -1346,7 +1378,19 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
 
         lines.append(line)
 
-
+    # Discount line item (negative amount) if order-level discount exists
+    discount_amount = float(order.discount_amount or 0)
+    if discount_amount > 0:
+        discount_line = {
+            'DetailType': 'SalesItemLineDetail',
+            'Amount': -discount_amount,
+            'Description': 'Order Discount',
+            'SalesItemLineDetail': {
+                'Qty': 1,
+                'UnitPrice': -discount_amount,
+            },
+        }
+        lines.append(discount_line)
 
     # Shipping fee line item
     shipping_price = float(order.shipping_price or 0)
@@ -1784,10 +1828,7 @@ def _upsert_shopify_order_from_payload(
         sku = str(line.get("sku") or "").strip()
         product = Product.objects.filter(sku=sku).first() if sku else None
         quantity = int(line.get("quantity") or 1)
-        
-        price_amount = (line.get("price_set") or {}).get("shop_money", {}).get("amount") or line.get("price")
-        discount_amount = (line.get("total_discount_set") or {}).get("shop_money", {}).get("amount") or line.get("total_discount")
-        unit_price = _as_decimal(price_amount) - (_as_decimal(discount_amount) / Decimal(quantity if quantity > 0 else 1))
+        unit_price = _as_decimal(line.get("price"))
 
         OrderItem.objects.create(
             order=order,

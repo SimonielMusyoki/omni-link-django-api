@@ -310,6 +310,11 @@ class OrderSyncLog(models.Model):
         help_text='ID returned by the external platform (e.g. Odoo SO ID, QB Invoice ID)',
     )
     error_message = models.TextField(blank=True, default='')
+    request_payload = models.JSONField(
+        blank=True,
+        null=True,
+        help_text='The JSON payload (or XML-RPC dict) sent during the sync attempt.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

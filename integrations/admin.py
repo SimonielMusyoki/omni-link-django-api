@@ -23,6 +23,7 @@ class OrderSyncLogAdmin(admin.ModelAdmin):
     list_display = ('order', 'integration', 'target', 'status', 'created_at')
     list_filter = ('target', 'status', 'integration')
     search_fields = ('order__order_number', 'error_message')
+    readonly_fields = ('order', 'integration', 'target', 'status', 'external_id', 'error_message', 'request_payload', 'created_at')
 
 
 @admin.register(ProductIntegrationMapping)
