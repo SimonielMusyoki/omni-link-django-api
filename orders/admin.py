@@ -15,7 +15,8 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = (
         'order_number', 'market', 'customer_name', 'total_amount',
         'currency', 'order_channel', 'status', 'fulfillment_status', 'payment_status',
-        'delivery_status', 'is_cash_on_delivery', 'created_at'
+        'delivery_status', 'is_cash_on_delivery', 'created_at',
+        'odoo_sales_invoice_id', 'quickbooks_sales_invoice_id'
     )
     list_filter = (
         'market', 'order_channel', 'status', 'fulfillment_status',
@@ -31,7 +32,7 @@ class OrderAdmin(admin.ModelAdmin):
         'order_number', 'shopify_order_id', 'created_at', 'updated_at',
         'shopify_created_at', 'shopify_updated_at', 'confirmed_at',
         'fulfilled_at', 'shipped_at', 'delivered_at', 'cancelled_at',
-        'owner', 'total_items', 'is_paid', 'is_fulfilled', 'currency_display'
+        'owner', 'total_items', 'is_paid', 'is_fulfilled', 'currency_display',
     )
     inlines = [OrderItemInline]
 
@@ -60,6 +61,11 @@ class OrderAdmin(admin.ModelAdmin):
             'fields': (
                 'payment_method', 'order_channel', 'is_cash_on_delivery', 'payment_gateway',
                 'transaction_id'
+            )
+        }),
+        ('Sync Information', {
+            'fields': (
+                'odoo_sales_invoice_id', 'quickbooks_sales_invoice_id',
             )
         }),
         ('Pricing', {
