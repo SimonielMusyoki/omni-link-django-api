@@ -379,13 +379,21 @@ class OrderItem(models.Model):
         max_digits=12,
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0'))],
-        help_text='Price per unit'
+        help_text='Gross (list) price per unit from Shopify price_set.shop_money.amount'
+    )
+    sale_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Discounted per-unit price (unit_price minus per-unit discount). Null if no discount.'
     )
     total_price = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0'))],
-        help_text='Total price for this line item (quantity × unit_price)'
+        help_text='Total price for this line item (quantity × effective price)'
     )
 
     # Tax Information

@@ -31,8 +31,8 @@ class OrderViewSet(viewsets.ModelViewSet[Order]):
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status', 'warehouse', 'created_at', 'shopify_created_at', 'market']
-    search_fields = ['order_number', 'customer_email', 'customer_name']
+    filterset_fields = ['status', 'warehouse', 'created_at', 'shopify_created_at', 'market', 'order_channel']
+    search_fields = ['order_number', 'shopify_order_number', 'customer_email', 'customer_name', 'customer_phone']
     ordering_fields = ['shopify_created_at', 'created_at', 'status', 'total_amount']
     # Default sort: most recently placed on Shopify first.
     ordering = ['-shopify_created_at', '-created_at']

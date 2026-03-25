@@ -477,6 +477,7 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             product_name = 'Test Product'
             quantity = 2
             unit_price = '10.00'
+            sale_price = None
             total_price = '20.00'
             product_id = 1
             product = None
@@ -502,6 +503,18 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             discount_amount = 0
             subtotal_price = '20.00'
             total_price = '20.00'
+            billing_address_line1 = ''
+            billing_address_line2 = ''
+            billing_city = ''
+            billing_state = ''
+            billing_postal_code = ''
+            billing_country = ''
+            shipping_address_line1 = ''
+            shipping_address_line2 = ''
+            shipping_city = ''
+            shipping_state = ''
+            shipping_postal_code = ''
+            shipping_country = ''
 
         sku_map_response = MagicMock()
         sku_map_response.status_code = 200
@@ -557,6 +570,7 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             product_name = 'Aloe Gel'
             quantity = 2
             unit_price = '15.00'
+            sale_price = None
             total_price = '30.00'
             product_id = 1
             product = None
@@ -582,6 +596,18 @@ class QuickBooksInvoiceCreationTests(APITestCase):
             discount_amount = 0
             subtotal_price = '30.00'
             total_price = '35.00'
+            billing_address_line1 = ''
+            billing_address_line2 = ''
+            billing_city = ''
+            billing_state = ''
+            billing_postal_code = ''
+            billing_country = ''
+            shipping_address_line1 = ''
+            shipping_address_line2 = ''
+            shipping_city = ''
+            shipping_state = ''
+            shipping_postal_code = ''
+            shipping_country = ''
 
         response = MagicMock()
         response.status_code = 200

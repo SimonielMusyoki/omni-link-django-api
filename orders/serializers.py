@@ -15,8 +15,9 @@ class OrderItemSerializer(serializers.ModelSerializer[OrderItem]):
         model = OrderItem
         fields = [
             'id', 'product', 'shopify_product_id', 'shopify_variant_id',
-            'product_name', 'variant_name', 'sku', 'image_url', 'quantity', 'unit_price',
-            'total_price', 'tax_amount', 'tax_rate', 'discount_amount',
+            'product_name', 'variant_name', 'sku', 'image_url', 'product_image_url',
+            'quantity', 'unit_price', 'sale_price', 'total_price',
+            'tax_amount', 'tax_rate', 'discount_amount',
             'fulfillment_status', 'requires_shipping', 'is_gift_card',
             'weight', 'weight_unit', 'vendor', 'properties'
         ]

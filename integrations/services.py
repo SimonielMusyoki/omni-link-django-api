@@ -730,7 +730,7 @@ def create_odoo_sales_order(integration: Integration, order: Order) -> int:
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'product_uom_qty': float(item.quantity),
-            'price_unit': float(item.unit_price),
+            'price_unit': float(item.sale_price if item.sale_price is not None else item.unit_price),
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -807,7 +807,7 @@ def create_odoo_invoice_record(integration: Integration, order: Order) -> int:
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'quantity': float(item.quantity),
-            'price_unit': float(item.unit_price),
+            'price_unit': float(item.sale_price if item.sale_price is not None else item.unit_price),
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -904,7 +904,7 @@ def update_odoo_sales_order(integration: Integration, order: Order) -> None:
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'product_uom_qty': float(item.quantity),
-            'price_unit': float(item.unit_price),
+            'price_unit': float(item.sale_price if item.sale_price is not None else item.unit_price),
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -982,7 +982,7 @@ def update_odoo_invoice_record(integration: Integration, order: Order) -> None:
         line_vals: dict[str, Any] = {
             'name': item.product_name,
             'quantity': float(item.quantity),
-            'price_unit': float(item.unit_price),
+            'price_unit': float(item.sale_price if item.sale_price is not None else item.unit_price),
         }
 
         odoo_pid = _resolve_odoo_product_by_sku(item.sku, models_proxy, creds, uid, sku_cache)
@@ -1223,7 +1223,7 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
                 'Description': item.product_name,
                 'SalesItemLineDetail': {
                     'Qty': float(item.quantity),
-                    'UnitPrice': float(item.unit_price),
+                    'UnitPrice': float(item.sale_price if item.sale_price is not None else item.unit_price),
                 },
             }
             if item_ref:
@@ -1262,6 +1262,38 @@ def create_quickbooks_sales_invoice(integration: Integration, order: Order) -> s
         'PrivateNote': f'Omni-Link order {order.shopify_order_number}',
         'Line': lines,
     }
+
+    # Billing address
+    if order.billing_address_line1:
+        payload['BillAddr'] = {
+            'Line1': order.billing_address_line1,
+            'Line2': order.billing_address_line2 or None,
+            'City': order.billing_city or None,
+            'CountrySubDivisionCode': order.billing_state or None,
+            'PostalCode': order.billing_postal_code or None,
+            'Country': order.billing_country or None,
+        }
+    elif order.shipping_address_line1:
+        # Fall back to shipping address when billing is absent
+        payload['BillAddr'] = {
+            'Line1': order.shipping_address_line1,
+            'Line2': order.shipping_address_line2 or None,
+            'City': order.shipping_city or None,
+            'CountrySubDivisionCode': order.shipping_state or None,
+            'PostalCode': order.shipping_postal_code or None,
+            'Country': order.shipping_country or None,
+        }
+
+    # Shipping address
+    if order.shipping_address_line1:
+        payload['ShipAddr'] = {
+            'Line1': order.shipping_address_line1,
+            'Line2': order.shipping_address_line2 or None,
+            'City': order.shipping_city or None,
+            'CountrySubDivisionCode': order.shipping_state or None,
+            'PostalCode': order.shipping_postal_code or None,
+            'Country': order.shipping_country or None,
+        }
 
     response = _quickbooks_request('POST', endpoint, creds, json_payload=payload)
 
@@ -1368,7 +1400,7 @@ def update_quickbooks_invoice(integration: Integration, order: Order) -> None:
                 'Description': item.product_name,
                 'SalesItemLineDetail': {
                     'Qty': float(item.quantity),
-                    'UnitPrice': float(item.unit_price),
+                    'UnitPrice': float(item.sale_price if item.sale_price is not None else item.unit_price),
                 },
             }
             if item_ref:
@@ -1828,7 +1860,25 @@ def _upsert_shopify_order_from_payload(
         sku = str(line.get("sku") or "").strip()
         product = Product.objects.filter(sku=sku).first() if sku else None
         quantity = int(line.get("quantity") or 1)
-        unit_price = _as_decimal(line.get("price"))
+
+        # Gross (list) price from Shopify
+        unit_price = _as_decimal(
+            (line.get("price_set") or {}).get("shop_money", {}).get("amount")
+            or line.get("price")
+        )
+
+        # Per-unit discount → discounted sale price
+        raw_line_discount = _as_decimal(
+            (line.get("total_discount_set") or {}).get("shop_money", {}).get("amount")
+            or line.get("total_discount")
+        )
+        if raw_line_discount > Decimal("0") and quantity > 0:
+            per_unit_discount = raw_line_discount / Decimal(quantity)
+            sale_price: Decimal | None = max(Decimal("0"), unit_price - per_unit_discount)
+        else:
+            sale_price = None
+
+        effective_price = sale_price if sale_price is not None else unit_price
 
         OrderItem.objects.create(
             order=order,
@@ -1841,10 +1891,11 @@ def _upsert_shopify_order_from_payload(
             product_image_url=_extract_order_line_image_url(line, product),
             quantity=quantity,
             unit_price=unit_price,
-            total_price=unit_price * quantity,
+            sale_price=sale_price,
+            total_price=effective_price * quantity,
             tax_amount=_as_decimal(line.get("total_tax")),
             tax_rate=defaults["tax_rate"] if "tax_rate" in defaults else Decimal("0"),
-            discount_amount=_as_decimal(line.get("total_discount")),
+            discount_amount=raw_line_discount,
             fulfillment_status=line.get("fulfillment_status") or "UNFULFILLED",
             requires_shipping=bool(line.get("requires_shipping", True)),
             is_gift_card=bool(line.get("gift_card", False)),
